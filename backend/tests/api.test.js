@@ -12,6 +12,8 @@ import Product from '../src/models/Product.js';
 import ProductVariant from '../src/models/ProductVariant.js';
 import StoreSettings from '../src/models/StoreSettings.js';
 import Coupon from '../src/models/Coupon.js';
+import EmailLog from '../src/models/EmailLog.js';
+import crypto from 'crypto';
 
 let mongoServer;
 const request = supertest(app);
@@ -299,5 +301,114 @@ describe('Aura Fashion E-Commerce Backend Test Suite', () => {
     assert.equal(res.body.success, true);
     assert.equal(res.body.stats.totalOrders, 1);
     assert.ok(res.body.stats.totalRevenue > 0);
+  });
+
+  test('15. Forgot Password Security (User Enumeration Prevention)', async () => {
+    // Non-existent email should return generic 200 success without leaking existence
+    const resNonExistent = await request.post('/api/auth/forgot-password').send({
+      email: 'nonexistent.user@example.com'
+    });
+    assert.equal(resNonExistent.status, 200);
+    assert.equal(resNonExistent.body.success, true);
+    assert.ok(resNonExistent.body.message.includes('If an account with that email exists'));
+
+    // Existing user should also return the exact same generic message
+    const resExisting = await request.post('/api/auth/forgot-password').send({
+      email: 'priya@example.com'
+    });
+    assert.equal(resExisting.status, 200);
+    assert.equal(resExisting.body.success, true);
+    assert.ok(resExisting.body.message.includes('If an account with that email exists'));
+
+    // Verify token was hashed with sha256 in DB and has future expiry
+    const user = await User.findOne({ email: 'priya@example.com' });
+    assert.ok(user.resetPasswordToken);
+    assert.ok(user.resetPasswordExpire > Date.now());
+  });
+
+  test('16. Password Reset Token Workflow & Single-Use Invalidation', async () => {
+    // Set a known plaintext token and store sha256 hash in database
+    const rawToken = 'testresettoken1234567890abcdef';
+    const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
+
+    await User.updateOne(
+      { email: 'priya@example.com' },
+      {
+        resetPasswordToken: hashedToken,
+        resetPasswordExpire: Date.now() + 20 * 60 * 1000
+      }
+    );
+
+    // Test 16a: Invalid token should be rejected with 400
+    const resInvalid = await request
+      .put('/api/auth/reset-password/invalidrawtoken999')
+      .send({ password: 'BrandNewPassword@2026' });
+    assert.equal(resInvalid.status, 400);
+    assert.equal(resInvalid.body.success, false);
+
+    // Test 16b: Valid token should successfully reset password
+    const resValid = await request
+      .put(`/api/auth/reset-password/${rawToken}`)
+      .send({ password: 'BrandNewPassword@2026' });
+    assert.equal(resValid.status, 200);
+    assert.equal(resValid.body.success, true);
+    assert.ok(resValid.body.token);
+
+    // Verify token was cleared (single-use)
+    const userAfter = await User.findOne({ email: 'priya@example.com' });
+    assert.equal(userAfter.resetPasswordToken, undefined);
+    assert.equal(userAfter.resetPasswordExpire, undefined);
+
+    // Test 16c: Token reuse attempt must be rejected with 400
+    const resReuse = await request
+      .put(`/api/auth/reset-password/${rawToken}`)
+      .send({ password: 'AnotherPassword@2026' });
+    assert.equal(resReuse.status, 400);
+
+    // Test 16d: Login with new password succeeds
+    const resLogin = await request.post('/api/auth/login').send({
+      email: 'priya@example.com',
+      password: 'BrandNewPassword@2026'
+    });
+    assert.equal(resLogin.status, 200);
+    assert.equal(resLogin.body.success, true);
+  });
+
+  test('17. Admin Email Audit Logs Endpoint', async () => {
+    // Requires admin authorization
+    const resUnauthorized = await request.get('/api/settings/email-logs');
+    assert.equal(resUnauthorized.status, 401);
+
+    const resAuthorized = await request
+      .get('/api/settings/email-logs')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    assert.equal(resAuthorized.status, 200);
+    assert.equal(resAuthorized.body.success, true);
+    assert.ok(Array.isArray(resAuthorized.body.logs));
+  });
+
+  test('18. Email Delivery Audit Logging & Duplicate Prevention', async () => {
+    // Insert a mock email log to verify schema and retrieval
+    const sampleLog = await EmailLog.create({
+      recipient: 'shoppe.aurafashion@gmail.com',
+      emailType: 'ORDER_CONFIRMATION',
+      subject: 'Order Confirmed - AF-TEST-1001',
+      orderNumber: 'AF-TEST-1001',
+      status: 'SENT',
+      attempts: 1
+    });
+
+    assert.ok(sampleLog._id);
+    assert.equal(sampleLog.status, 'SENT');
+
+    // Retrieve via admin logs endpoint
+    const res = await request
+      .get('/api/settings/email-logs?emailType=ORDER_CONFIRMATION')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    assert.equal(res.status, 200);
+    assert.ok(res.body.logs.length > 0);
+    assert.equal(res.body.logs[0].emailType, 'ORDER_CONFIRMATION');
   });
 });

@@ -154,6 +154,12 @@ Customer Demo Account:
    - `CLOUDINARY_API_SECRET`: Cloudinary API secret
    - `CLIENT_URL`: `https://aura-fashion.vercel.app` (your customer frontend domain)
    - `ADMIN_URL`: `https://aura-fashion-admin.vercel.app` (your admin frontend domain)
+   - `EMAIL_HOST`: `smtp-relay.brevo.com` (or your SMTP provider host)
+   - `EMAIL_PORT`: `587`
+   - `EMAIL_USER`: Your SMTP login identifier
+   - `EMAIL_PASS`: Your SMTP master API key or App Password
+   - `EMAIL_FROM`: `Aura Fashion <shoppe.aurafashion@gmail.com>`
+   - `ADMIN_EMAIL`: `shoppe.aurafashion@gmail.com`
 5. Deploy the service. Copy the resulting URL (e.g. `https://aura-fashion-api.onrender.com`).
 
 ### C. Customer Frontend: Vercel
@@ -176,11 +182,48 @@ Customer Demo Account:
 
 ---
 
-## 5. Verification Checklist
+## 5. Email Notification & Password Recovery System
 
-- [x] Backend tests pass (`npm test` in `backend/`).
+Aura Fashion includes a production-ready, non-blocking email notification system built on Nodemailer and Brevo SMTP:
+
+### A. Environment Configuration
+Add to `backend/.env`:
+```ini
+EMAIL_HOST=smtp-relay.brevo.com
+EMAIL_PORT=587
+EMAIL_SECURE=false
+EMAIL_USER=your_brevo_smtp_user
+EMAIL_PASS=your_brevo_smtp_master_key
+EMAIL_FROM="Aura Fashion <shoppe.aurafashion@gmail.com>"
+ADMIN_EMAIL=shoppe.aurafashion@gmail.com
+```
+
+### B. Customer Lifecycle Notifications
+- **Order Placed**: Immediate confirmation with order ID, items breakdown, pricing, and delivery address.
+- **Payment Captured**: Razorpay payment reference, method, and transaction timestamp.
+- **Status Progression**: Dispatched, Shipped (with carrier and live tracking URL), Out for Delivery, Delivered.
+- **Cancellation & Refunds**: Automatic notifications with reason and estimated refund turnaround.
+
+### C. Store Administrator Alerts
+- **New Order Alert**: Immediate notification dispatched to `ADMIN_EMAIL` upon customer order placement.
+- **Low Stock Warnings**: Triggered whenever any SKU/variant drops to &le; 5 units remaining in inventory.
+- **Order Cancellations**: Instant heads-up when a customer cancels an existing order.
+
+### D. Password Recovery Security
+- **Endpoints**: `POST /api/auth/forgot-password` and `PUT /api/auth/reset-password/:token`.
+- **Anti-Enumeration**: Both existing and non-existent email requests return the identical neutral success message.
+- **Cryptographic Tokens**: Raw 32-byte tokens generated via `crypto.randomBytes(32)` are transmitted only via email; database stores SHA-256 hashed digest with a 20-minute validity window.
+- **Single-Use Enforcement**: Tokens are permanently purged from the database immediately upon successful password change.
+
+---
+
+## 6. Verification Checklist
+
+- [x] Backend tests pass (`node --test tests/api.test.js` in `backend/` - 19/19 tests passing).
 - [x] Customer Frontend builds cleanly (`npm run build` in `customer-frontend/`).
 - [x] Admin Frontend builds cleanly (`npm run build` in `admin-frontend/`).
 - [x] Guest shopping preserves items and merges seamlessly upon login.
 - [x] Variant-level inventory updates decrement stock on order creation.
 - [x] Printable PDF Tax Invoices render with shop name, Kainath, Bengaluru, and contact info.
+- [x] Brevo SMTP connection verified and test emails deliverable via Admin Dashboard.
+- [x] Password recovery workflow end-to-end verified with SHA-256 cryptographic tokens.

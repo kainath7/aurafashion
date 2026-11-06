@@ -93,6 +93,15 @@ const storeSettingsSchema = new mongoose.Schema(
       instagram: { type: String, default: 'https://instagram.com/aurafashion' },
       facebook: { type: String, default: 'https://facebook.com/aurafashion' },
       whatsapp: { type: String, default: 'https://wa.me/917022018850' }
+    },
+    notifications: {
+      orderConfirmationEmail: { type: Boolean, default: true },
+      paymentConfirmationEmail: { type: Boolean, default: true },
+      orderStatusEmail: { type: Boolean, default: true },
+      adminNewOrderAlert: { type: Boolean, default: true },
+      adminLowStockAlert: { type: Boolean, default: true },
+      adminOrderCancelledAlert: { type: Boolean, default: true },
+      adminNotificationEmail: { type: String, default: 'shoppe.aurafashion@gmail.com' }
     }
   },
   {

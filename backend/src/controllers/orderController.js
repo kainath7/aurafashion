@@ -8,6 +8,16 @@ import Cart from '../models/Cart.js';
 import { getRazorpayInstance, verifyRazorpaySignature } from '../config/razorpay.js';
 import { getIO } from '../sockets/socketHandler.js';
 import PDFDocument from 'pdfkit';
+import {
+  sendOrderConfirmationEmail,
+  sendPaymentConfirmationEmail,
+  sendOrderStatusUpdateEmail,
+  sendOrderCancelledEmail,
+  sendRefundProcessedEmail,
+  sendAdminNewOrderAlert,
+  sendAdminLowStockAlert,
+  sendAdminOrderCancelledAlert
+} from '../services/emailService.js';
 
 // Helper to generate unique human-readable order number: AF-YYYYMMDD-XXXX
 const generateOrderNumber = () => {
@@ -258,6 +268,25 @@ export const createOrder = async (req, res, next) => {
       console.warn('[Socket Error]:', socketErr.message);
     }
 
+    // Asynchronous Email Notifications (Customer Confirmation & Admin Alert)
+    try {
+      sendOrderConfirmationEmail(order).catch((e) => console.warn('[Email Warning]:', e.message));
+      sendAdminNewOrderAlert(order).catch((e) => console.warn('[Email Warning]:', e.message));
+
+      // Check for low inventory stock threshold
+      for (const { variant } of stockDeltasToApply) {
+        if (variant.stockQuantity <= 5) {
+          sendAdminLowStockAlert({
+            product: variant.product,
+            variant,
+            currentStock: variant.stockQuantity
+          }).catch((e) => console.warn('[Low Stock Alert Warning]:', e.message));
+        }
+      }
+    } catch (emailErr) {
+      console.warn('[Email Dispatch Warning]:', emailErr.message);
+    }
+
     res.status(201).json({
       success: true,
       order,
@@ -333,6 +362,9 @@ export const verifyPayment = async (req, res, next) => {
         });
       }
     } catch (e) {}
+
+    // Dispatch payment confirmation email
+    sendPaymentConfirmationEmail(order).catch((e) => console.warn('[Payment Email Warning]:', e.message));
 
     res.json({
       success: true,
@@ -437,6 +469,10 @@ export const cancelMyOrder = async (req, res, next) => {
 
     await order.save();
 
+    // Dispatch cancellation emails to customer and admin
+    sendOrderCancelledEmail(order, reason).catch((e) => console.warn('[Cancel Email Warning]:', e.message));
+    sendAdminOrderCancelledAlert(order, reason).catch((e) => console.warn('[Cancel Alert Warning]:', e.message));
+
     res.json({
       success: true,
       message: 'Order cancelled and inventory restored successfully',
@@ -519,6 +555,8 @@ export const adminUpdateOrderStatus = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Invalid order status' });
     }
 
+    const previousStatus = order.orderStatus;
+
     // If changing to DELIVERED and paymentMethod is COD, mark payment as COMPLETED
     if (status === 'DELIVERED' && order.paymentMethod === 'COD' && order.paymentInfo.status === 'PENDING') {
       order.paymentInfo.status = 'COMPLETED';
@@ -579,6 +617,29 @@ export const adminUpdateOrderStatus = async (req, res, next) => {
         });
       }
     } catch (e) {}
+
+    // Dispatch status update email to customer
+    try {
+      if (status === 'CANCELLED') {
+        sendOrderCancelledEmail(order, comment || 'Cancelled by store administration').catch((e) =>
+          console.warn('[Status Email Warning]:', e.message)
+        );
+      } else if (status === 'RETURNED') {
+        sendRefundProcessedEmail(order, order.pricing.grandTotal).catch((e) =>
+          console.warn('[Refund Email Warning]:', e.message)
+        );
+      } else {
+        sendOrderStatusUpdateEmail({
+          order,
+          previousStatus,
+          newStatus: status,
+          trackingNumber: trackingNumber || order.trackingNumber,
+          comment
+        }).catch((e) => console.warn('[Status Email Warning]:', e.message));
+      }
+    } catch (emailErr) {
+      console.warn('[Order Status Email Warning]:', emailErr.message);
+    }
 
     res.json({
       success: true,

@@ -2,6 +2,7 @@ import ProductVariant from '../models/ProductVariant.js';
 import Product from '../models/Product.js';
 import InventoryTransaction from '../models/InventoryTransaction.js';
 import { broadcastEvent } from '../sockets/socketHandler.js';
+import { sendAdminLowStockAlert } from '../services/emailService.js';
 
 // @desc    Get all variants for inventory management (with search, low stock filter)
 // @route   GET /api/variants/inventory
@@ -100,6 +101,19 @@ export const adjustVariantStock = async (req, res, next) => {
       newStock: stockVal,
       previousStock
     });
+
+    // Low stock email alert
+    if (stockVal <= 5) {
+      Product.findById(variant.product).then((prod) => {
+        if (prod) {
+          sendAdminLowStockAlert({
+            product: prod,
+            variant,
+            currentStock: stockVal
+          }).catch((e) => console.warn('[Low Stock Alert Warning]:', e.message));
+        }
+      }).catch(() => {});
+    }
 
     res.json({
       success: true,

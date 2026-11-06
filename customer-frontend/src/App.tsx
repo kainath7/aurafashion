@@ -21,6 +21,8 @@ import { ProfilePage } from './pages/ProfilePage';
 import { WishlistPage } from './pages/WishlistPage';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
+import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { PoliciesPage } from './pages/PoliciesPage';
 import { ContactPage } from './pages/ContactPage';
 
@@ -49,6 +51,8 @@ export const App: React.FC = () => {
                   <Route path="/wishlist" element={<WishlistPage />} />
                   <Route path="/login" element={<LoginPage />} />
                   <Route path="/register" element={<RegisterPage />} />
+                  <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                  <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
                   <Route path="/policies" element={<PoliciesPage />} />
                   <Route path="/contact" element={<ContactPage />} />
                 </Routes>

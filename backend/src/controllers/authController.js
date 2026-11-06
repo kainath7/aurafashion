@@ -1,5 +1,7 @@
+import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
+import { sendWelcomeEmail, sendPasswordResetEmail } from '../services/emailService.js';
 
 const generateToken = (id) => {
   return jwt.sign({ id, type: 'customer' }, process.env.JWT_SECRET || 'aura_fashion_super_secret_jwt_key_2026_secure', {
@@ -37,6 +39,11 @@ export const registerCustomer = async (req, res, next) => {
     });
 
     const token = generateToken(user._id);
+
+    // Send welcome email asynchronously without blocking registration
+    sendWelcomeEmail(user).catch((err) => {
+      console.warn('[Welcome Email Warning]:', err.message);
+    });
 
     res.status(201).json({
       success: true,
@@ -236,6 +243,128 @@ export const getWishlist = async (req, res, next) => {
     res.json({
       success: true,
       wishlist: user.wishlist || []
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Request password reset link
+// @route   POST /api/auth/forgot-password
+// @access  Public
+export const forgotPassword = async (req, res, next) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid registered email address'
+      });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const user = await User.findOne({ email: cleanEmail });
+
+    // Security practice: Always return generic success message to prevent user enumeration
+    if (!user) {
+      return res.json({
+        success: true,
+        message: 'If an account with that email exists, a password reset link has been sent to your inbox.'
+      });
+    }
+
+    // Generate 32-byte cryptographically secure random token
+    const rawResetToken = crypto.randomBytes(32).toString('hex');
+
+    // Hash token with SHA-256 before storing in database
+    const hashedToken = crypto.createHash('sha256').update(rawResetToken).digest('hex');
+
+    // Set token and 20-minute expiration period
+    user.resetPasswordToken = hashedToken;
+    user.resetPasswordExpire = new Date(Date.now() + 20 * 60 * 1000);
+
+    await user.save({ validateBeforeSave: false });
+
+    // Send email with the raw token in link
+    await sendPasswordResetEmail(user, rawResetToken);
+
+    res.json({
+      success: true,
+      message: 'If an account with that email exists, a password reset link has been sent to your inbox.'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Reset password using valid reset token
+// @route   PUT /api/auth/reset-password/:token
+// @access  Public
+export const resetPassword = async (req, res, next) => {
+  try {
+    const { password, confirmPassword } = req.body;
+    const { token } = req.params;
+
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password reset token is required'
+      });
+    }
+
+    if (!password || password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'New password must be at least 6 characters long'
+      });
+    }
+
+    if (confirmPassword !== undefined && password !== confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password and confirm password do not match'
+      });
+    }
+
+    // Hash the token provided in URL params to match with DB stored hash
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+    const user = await User.findOne({
+      resetPasswordToken: hashedToken,
+      resetPasswordExpire: { $gt: Date.now() }
+    }).select('+password');
+
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password reset link is invalid or has expired. Please request a new one.'
+      });
+    }
+
+    // Set new password (pre-save hook hashes with bcrypt)
+    user.password = password;
+
+    // Invalidate reset token after single successful use
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpire = undefined;
+
+    await user.save();
+
+    // Generate new session token so customer can log in immediately
+    const authToken = generateToken(user._id);
+
+    res.json({
+      success: true,
+      message: 'Password has been reset successfully! You are now logged in.',
+      token: authToken,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role
+      }
     });
   } catch (error) {
     next(error);

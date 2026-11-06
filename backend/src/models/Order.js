@@ -126,7 +126,15 @@ const orderSchema = new mongoose.Schema(
     },
     statusHistory: [statusHistorySchema],
     trackingNumber: { type: String, default: '' },
-    notes: { type: String, default: '' }
+    notes: { type: String, default: '' },
+    sentEmails: [
+      {
+        emailType: { type: String, required: true },
+        recipient: { type: String },
+        sentAt: { type: Date, default: Date.now },
+        messageId: { type: String }
+      }
+    ]
   },
   {
     timestamps: true

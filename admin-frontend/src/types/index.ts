@@ -143,6 +143,28 @@ export interface StoreSettings {
   exchangePolicy: string;
   refundPolicy: string;
   businessHours: string;
+  notifications?: {
+    orderConfirmationEmail: boolean;
+    paymentConfirmationEmail: boolean;
+    orderStatusEmail: boolean;
+    adminNewOrderAlert: boolean;
+    adminLowStockAlert: boolean;
+    adminOrderCancelledAlert: boolean;
+    adminNotificationEmail: string;
+  };
+}
+
+export interface EmailLog {
+  _id: string;
+  recipient: string;
+  emailType: string;
+  subject: string;
+  orderNumber?: string;
+  status: 'SENT' | 'FAILED' | 'RETRYING' | 'SKIPPED';
+  attempts: number;
+  messageId?: string;
+  errorMessage?: string;
+  createdAt: string;
 }
 
 export interface Banner {
