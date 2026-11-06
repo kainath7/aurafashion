@@ -67,11 +67,16 @@ export interface Address {
   phone: string;
   houseNo: string;
   street: string;
+  area?: string;
   landmark?: string;
   city: string;
   state: string;
   pincode: string;
   isDefault: boolean;
+  latitude?: number | null;
+  longitude?: number | null;
+  formattedAddress?: string;
+  addressSource?: 'GPS' | 'MANUAL' | 'MAP_PICKER';
 }
 
 export interface User {

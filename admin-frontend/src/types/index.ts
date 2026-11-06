@@ -88,10 +88,15 @@ export interface Order {
     phone: string;
     houseNo: string;
     street: string;
+    area?: string;
     landmark?: string;
     city: string;
     state: string;
     pincode: string;
+    latitude?: number | null;
+    longitude?: number | null;
+    formattedAddress?: string;
+    addressSource?: string;
   };
   items: OrderItem[];
   pricing: {

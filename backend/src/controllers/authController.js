@@ -152,7 +152,22 @@ export const updateCustomerProfile = async (req, res, next) => {
 // @access  Private (Customer)
 export const addAddress = async (req, res, next) => {
   try {
-    const { fullName, phone, houseNo, street, landmark, city, state, pincode, isDefault } = req.body;
+    const {
+      fullName,
+      phone,
+      houseNo,
+      street,
+      area,
+      landmark,
+      city,
+      state,
+      pincode,
+      isDefault,
+      latitude,
+      longitude,
+      formattedAddress,
+      addressSource
+    } = req.body;
     const user = await User.findById(req.user._id);
 
     if (isDefault) {
@@ -164,11 +179,16 @@ export const addAddress = async (req, res, next) => {
       phone,
       houseNo,
       street,
+      area: area || '',
       landmark: landmark || '',
       city,
       state,
       pincode,
-      isDefault: Boolean(isDefault || user.addresses.length === 0)
+      isDefault: Boolean(isDefault || user.addresses.length === 0),
+      latitude: latitude ? parseFloat(latitude) : null,
+      longitude: longitude ? parseFloat(longitude) : null,
+      formattedAddress: formattedAddress || '',
+      addressSource: addressSource || 'MANUAL'
     });
 
     await user.save();

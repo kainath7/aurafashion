@@ -109,9 +109,24 @@ export const OrderSuccessPage: React.FC = () => {
 
         {/* Delivery Address Snapshot */}
         <div className="pt-4 border-t border-stone-100 text-xs text-stone-600">
-          <p className="font-bold text-stone-900 mb-1">Delivering To:</p>
+          <div className="flex items-center justify-between mb-1">
+            <p className="font-bold text-stone-900">Delivering To:</p>
+            {order.shippingAddress.latitude && order.shippingAddress.longitude && (
+              <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded border border-emerald-200">
+                📍 GPS Pin Confirmed
+              </span>
+            )}
+          </div>
           <p>{order.shippingAddress.fullName} &bull; {order.shippingAddress.phone}</p>
-          <p>{order.shippingAddress.houseNo}, {order.shippingAddress.street}, {order.shippingAddress.city}, {order.shippingAddress.state} - {order.shippingAddress.pincode}</p>
+          <p>
+            {order.shippingAddress.houseNo}, {order.shippingAddress.street}
+            {order.shippingAddress.area ? `, ${order.shippingAddress.area}` : ''}
+            {order.shippingAddress.landmark ? ` (Landmark: ${order.shippingAddress.landmark})` : ''}
+          </p>
+          <p>
+            {order.shippingAddress.city}, {order.shippingAddress.state} -{' '}
+            <span className="font-mono font-semibold">{order.shippingAddress.pincode}</span>
+          </p>
         </div>
 
         {/* Pricing Total */}

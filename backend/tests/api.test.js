@@ -411,4 +411,87 @@ describe('Aura Fashion E-Commerce Backend Test Suite', () => {
     assert.ok(res.body.logs.length > 0);
     assert.equal(res.body.logs[0].emailType, 'ORDER_CONFIRMATION');
   });
+
+  test('19. Geocode Reverse Endpoint (GPS to Structured Address)', async () => {
+    // 19a: Missing parameters returns 400
+    const resMissing = await request.get('/api/geocode/reverse');
+    assert.equal(resMissing.status, 400);
+    assert.equal(resMissing.body.success, false);
+
+    // 19b: Invalid coordinate bounds returns 400
+    const resInvalid = await request.get('/api/geocode/reverse?lat=120&lng=77');
+    assert.equal(resInvalid.status, 400);
+
+    // 19c: Valid Bengaluru coordinates (MG Road / Indiranagar)
+    const resBengaluru = await request.get('/api/geocode/reverse?lat=12.9716&lng=77.5946');
+    assert.equal(resBengaluru.status, 200);
+    assert.equal(resBengaluru.body.success, true);
+    assert.ok(resBengaluru.body.data);
+    assert.equal(resBengaluru.body.data.city, 'Bengaluru');
+    assert.equal(resBengaluru.body.data.state, 'Karnataka');
+    assert.ok(resBengaluru.body.data.pincode);
+    assert.equal(resBengaluru.body.data.latitude, 12.9716);
+    assert.equal(resBengaluru.body.data.longitude, 77.5946);
+  });
+
+  test('20. Order Placement with GPS-Based Delivery Address & Validation', async () => {
+    // 20a: Missing required PIN code or phone fails validation
+    const resInvalidAddress = await request
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${customerToken}`)
+      .send({
+        items: [{ variantId, quantity: 1 }],
+        shippingAddress: {
+          fullName: 'Priya Sharma',
+          phone: '987', // Invalid phone length
+          houseNo: 'Flat 101',
+          street: 'Indiranagar 100ft Road',
+          city: 'Bengaluru',
+          state: 'Karnataka',
+          pincode: '56' // Invalid short pincode
+        },
+        paymentMethod: 'COD'
+      });
+    assert.equal(resInvalidAddress.status, 400);
+
+    // 20b: Complete order with confirmed GPS coordinates
+    const resGpsOrder = await request
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${customerToken}`)
+      .send({
+        items: [{ variantId, quantity: 1 }],
+        shippingAddress: {
+          fullName: 'Priya Sharma',
+          phone: '9876543210',
+          houseNo: 'Villa 12, Palm Meadows',
+          street: 'Airport Road',
+          area: 'Varthur',
+          landmark: 'Opposite Forum Mall',
+          city: 'Bengaluru',
+          state: 'Karnataka',
+          pincode: '560066',
+          latitude: 12.9602,
+          longitude: 77.7475,
+          formattedAddress: 'Villa 12, Palm Meadows, Varthur, Bengaluru',
+          addressSource: 'GPS'
+        },
+        paymentMethod: 'COD'
+      });
+
+    assert.equal(resGpsOrder.status, 201);
+    assert.equal(resGpsOrder.body.success, true);
+    const createdOrder = resGpsOrder.body.order;
+    assert.equal(createdOrder.shippingAddress.latitude, 12.9602);
+    assert.equal(createdOrder.shippingAddress.longitude, 77.7475);
+    assert.equal(createdOrder.shippingAddress.area, 'Varthur');
+    assert.equal(createdOrder.shippingAddress.landmark, 'Opposite Forum Mall');
+    assert.equal(createdOrder.shippingAddress.addressSource, 'GPS');
+
+    // 20c: Tax Invoice streams with updated address details
+    const resInvoice = await request
+      .get(`/api/orders/${createdOrder._id}/invoice`)
+      .set('Authorization', `Bearer ${customerToken}`);
+    assert.equal(resInvoice.status, 200);
+    assert.equal(resInvoice.header['content-type'], 'application/pdf');
+  });
 });

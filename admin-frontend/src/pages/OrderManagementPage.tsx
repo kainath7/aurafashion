@@ -358,9 +358,38 @@ export const OrderManagementPage: React.FC = () => {
                 <p className="text-slate-600">Phone: {selectedOrder.customerInfo.phone}</p>
               </div>
               <div className="space-y-1">
-                <p className="font-bold text-slate-800">Destination Address</p>
-                <p className="text-slate-600">{selectedOrder.shippingAddress.houseNo}, {selectedOrder.shippingAddress.street}</p>
-                <p className="text-slate-600">{selectedOrder.shippingAddress.city}, {selectedOrder.shippingAddress.state} - {selectedOrder.shippingAddress.pincode}</p>
+                <div className="flex items-center justify-between">
+                  <p className="font-bold text-slate-800">Destination Address</p>
+                  {selectedOrder.shippingAddress.latitude && selectedOrder.shippingAddress.longitude && (
+                    <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded border border-emerald-200">
+                      GPS Captured
+                    </span>
+                  )}
+                </div>
+                <p className="text-slate-600">
+                  {selectedOrder.shippingAddress.houseNo}, {selectedOrder.shippingAddress.street}
+                  {selectedOrder.shippingAddress.area ? `, ${selectedOrder.shippingAddress.area}` : ''}
+                </p>
+                {selectedOrder.shippingAddress.landmark && (
+                  <p className="text-slate-500 text-[11px]">Landmark: {selectedOrder.shippingAddress.landmark}</p>
+                )}
+                <p className="text-slate-600">
+                  {selectedOrder.shippingAddress.city}, {selectedOrder.shippingAddress.state} -{' '}
+                  <span className="font-mono font-semibold">{selectedOrder.shippingAddress.pincode}</span>
+                </p>
+
+                {selectedOrder.shippingAddress.latitude && selectedOrder.shippingAddress.longitude && (
+                  <div className="pt-2">
+                    <a
+                      href={`https://www.google.com/maps?q=${selectedOrder.shippingAddress.latitude},${selectedOrder.shippingAddress.longitude}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[11px] font-bold text-[#832729] hover:underline flex items-center gap-1"
+                    >
+                      📍 Open Navigation Pin on Google Maps &rarr;
+                    </a>
+                  </div>
+                )}
               </div>
             </div>
           </div>

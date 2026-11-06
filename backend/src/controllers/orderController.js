@@ -38,7 +38,32 @@ export const createOrder = async (req, res, next) => {
     }
 
     if (!shippingAddress || !shippingAddress.fullName || !shippingAddress.phone || !shippingAddress.houseNo || !shippingAddress.street || !shippingAddress.city || !shippingAddress.pincode) {
-      return res.status(400).json({ success: false, message: 'Please provide a complete delivery address' });
+      return res.status(400).json({ success: false, message: 'Please provide a complete delivery address (Full Name, Phone, House/Flat, Street, City, and PIN code are required).' });
+    }
+
+    const cleanPincode = shippingAddress.pincode.toString().trim();
+    if (cleanPincode.length < 5 || cleanPincode.length > 10) {
+      return res.status(400).json({ success: false, message: 'Please provide a valid PIN code.' });
+    }
+
+    const cleanPhone = shippingAddress.phone.toString().replace(/\D/g, '');
+    if (cleanPhone.length < 10) {
+      return res.status(400).json({ success: false, message: 'Please provide a valid 10-digit mobile number.' });
+    }
+
+    let lat = null;
+    let lng = null;
+    if (shippingAddress.latitude !== undefined && shippingAddress.latitude !== null && shippingAddress.latitude !== '') {
+      const parsedLat = parseFloat(shippingAddress.latitude);
+      if (!isNaN(parsedLat) && parsedLat >= -90 && parsedLat <= 90) {
+        lat = parsedLat;
+      }
+    }
+    if (shippingAddress.longitude !== undefined && shippingAddress.longitude !== null && shippingAddress.longitude !== '') {
+      const parsedLng = parseFloat(shippingAddress.longitude);
+      if (!isNaN(parsedLng) && parsedLng >= -180 && parsedLng <= 180) {
+        lng = parsedLng;
+      }
     }
 
     if (!['RAZORPAY', 'COD'].includes(paymentMethod)) {
@@ -221,15 +246,24 @@ export const createOrder = async (req, res, next) => {
         phone: shippingAddress.phone || req.user.phone || ''
       },
       shippingAddress: {
-        fullName: shippingAddress.fullName,
-        phone: shippingAddress.phone,
-        houseNo: shippingAddress.houseNo,
-        street: shippingAddress.street,
-        landmark: shippingAddress.landmark || '',
-        city: shippingAddress.city,
-        state: shippingAddress.state,
-        pincode: shippingAddress.pincode,
-        deliveryInstructions: shippingAddress.deliveryInstructions || ''
+        fullName: shippingAddress.fullName.trim(),
+        phone: shippingAddress.phone.trim(),
+        houseNo: shippingAddress.houseNo.trim(),
+        street: shippingAddress.street.trim(),
+        area: (shippingAddress.area || '').trim(),
+        landmark: (shippingAddress.landmark || '').trim(),
+        city: shippingAddress.city.trim(),
+        state: shippingAddress.state ? shippingAddress.state.trim() : 'Karnataka',
+        pincode: cleanPincode,
+        deliveryInstructions: shippingAddress.deliveryInstructions || '',
+        latitude: lat,
+        longitude: lng,
+        formattedAddress: shippingAddress.formattedAddress || '',
+        addressSource: ['GPS', 'MANUAL', 'MAP_PICKER'].includes(shippingAddress.addressSource)
+          ? shippingAddress.addressSource
+          : lat && lng
+          ? 'GPS'
+          : 'MANUAL'
       },
       items: validatedOrderItems,
       pricing: {
@@ -705,9 +739,29 @@ export const generateOrderInvoice = async (req, res, next) => {
       .fontSize(10)
       .fillColor('#475569')
       .text(order.shippingAddress.fullName, 320, 150)
-      .text(`${order.shippingAddress.houseNo}, ${order.shippingAddress.street}`, 320, 165)
-      .text(`${order.shippingAddress.city}, ${order.shippingAddress.state} - ${order.shippingAddress.pincode}`, 320, 180)
-      .text(`Phone: ${order.shippingAddress.phone}`, 320, 195);
+      .text(
+        `${order.shippingAddress.houseNo}, ${order.shippingAddress.street}${
+          order.shippingAddress.area ? ', ' + order.shippingAddress.area : ''
+        }`,
+        320,
+        165
+      )
+      .text(
+        `${order.shippingAddress.landmark ? 'Landmark: ' + order.shippingAddress.landmark + ' | ' : ''}${
+          order.shippingAddress.city
+        }, ${order.shippingAddress.state} - ${order.shippingAddress.pincode}`,
+        320,
+        180
+      )
+      .text(
+        `Phone: ${order.shippingAddress.phone}${
+          order.shippingAddress.latitude && order.shippingAddress.longitude
+            ? ` (GPS: ${order.shippingAddress.latitude.toFixed(4)}, ${order.shippingAddress.longitude.toFixed(4)})`
+            : ''
+        }`,
+        320,
+        195
+      );
 
     doc.moveTo(40, 225).lineTo(555, 225).strokeColor('#E2E8F0').stroke();
 

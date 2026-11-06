@@ -79,11 +79,20 @@ const orderSchema = new mongoose.Schema(
       phone: { type: String, required: true },
       houseNo: { type: String, required: true },
       street: { type: String, required: true },
+      area: { type: String, default: '' },
       landmark: { type: String, default: '' },
       city: { type: String, required: true },
       state: { type: String, required: true },
       pincode: { type: String, required: true },
-      deliveryInstructions: { type: String, default: '' }
+      deliveryInstructions: { type: String, default: '' },
+      latitude: { type: Number, default: null },
+      longitude: { type: Number, default: null },
+      formattedAddress: { type: String, default: '' },
+      addressSource: {
+        type: String,
+        enum: ['GPS', 'MANUAL', 'MAP_PICKER'],
+        default: 'MANUAL'
+      }
     },
     items: [orderItemSchema],
     pricing: {

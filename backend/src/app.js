@@ -20,6 +20,7 @@ import bannerRoutes from './routes/bannerRoutes.js';
 import couponRoutes from './routes/couponRoutes.js';
 import reportRoutes from './routes/reportRoutes.js';
 import customerManagementRoutes from './routes/customerManagementRoutes.js';
+import geocodeRoutes from './routes/geocodeRoutes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -93,6 +94,7 @@ app.use('/api/banners', bannerRoutes);
 app.use('/api/coupons', couponRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/admin/customers', customerManagementRoutes);
+app.use('/api/geocode', geocodeRoutes);
 
 // Catch 404
 app.use('*', (req, res) => {

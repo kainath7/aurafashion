@@ -183,13 +183,42 @@ export const OrderDetailPage: React.FC = () => {
         {/* Address and Payment Summary */}
         <div className="space-y-6">
           <div className="bg-white rounded-2xl border border-stone-200 p-6 space-y-3 text-xs">
-            <h3 className="font-serif text-base font-bold text-stone-900 pb-2 border-b border-stone-100">
-              Delivery Address
-            </h3>
+            <div className="flex items-center justify-between pb-2 border-b border-stone-100">
+              <h3 className="font-serif text-base font-bold text-stone-900">
+                Delivery Address
+              </h3>
+              {order.shippingAddress.latitude && order.shippingAddress.longitude && (
+                <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  GPS Verified
+                </span>
+              )}
+            </div>
             <p className="font-bold text-stone-800">{order.shippingAddress.fullName}</p>
-            <p className="text-stone-600">{order.shippingAddress.houseNo}, {order.shippingAddress.street}</p>
-            <p className="text-stone-600">{order.shippingAddress.city}, {order.shippingAddress.state} - {order.shippingAddress.pincode}</p>
+            <p className="text-stone-600">
+              {order.shippingAddress.houseNo}, {order.shippingAddress.street}
+              {order.shippingAddress.area ? `, ${order.shippingAddress.area}` : ''}
+            </p>
+            {order.shippingAddress.landmark && (
+              <p className="text-stone-500 text-[11px]">Landmark: {order.shippingAddress.landmark}</p>
+            )}
+            <p className="text-stone-600">
+              {order.shippingAddress.city}, {order.shippingAddress.state} -{' '}
+              <span className="font-mono font-semibold">{order.shippingAddress.pincode}</span>
+            </p>
             <p className="text-stone-500 font-medium pt-1">Phone: {order.shippingAddress.phone}</p>
+
+            {order.shippingAddress.latitude && order.shippingAddress.longitude && (
+              <div className="pt-2 border-t border-stone-100">
+                <a
+                  href={`https://www.google.com/maps?q=${order.shippingAddress.latitude},${order.shippingAddress.longitude}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[11px] font-bold text-[#832729] hover:underline flex items-center gap-1"
+                >
+                  📍 Open Exact Doorstep on Google Maps &rarr;
+                </a>
+              </div>
+            )}
           </div>
 
           <div className="bg-white rounded-2xl border border-stone-200 p-6 space-y-3 text-xs">

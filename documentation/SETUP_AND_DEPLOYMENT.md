@@ -217,9 +217,31 @@ ADMIN_EMAIL=shoppe.aurafashion@gmail.com
 
 ---
 
-## 6. Verification Checklist
+## 6. GPS & Manual Delivery Address Selection
 
-- [x] Backend tests pass (`node --test tests/api.test.js` in `backend/` - 19/19 tests passing).
+Aura Fashion features a hybrid address selection experience:
+
+### A. Geolocation & Reverse Geocoding
+- **Endpoint**: `GET /api/geocode/reverse?lat=...&lng=...`
+- **Reverse Geocoder**: Integrates OpenStreetMap Nominatim with User-Agent compliance, query caching (~11m resolution), and BigDataCloud fallback.
+- **Auto-Population**: Populates building/flat, street, area/suburb, city, state, and PIN code.
+- **Fail-Safe**: Clear error messages on browser permission denial, timeout, or location unavailability, allowing instant manual fallback.
+
+### B. Interactive Map Pinpoint
+- **Map Engine**: Leaflet with responsive OpenStreetMap tiles (`DeliveryLocationMap.tsx`).
+- **Draggable Marker**: Customers can drag the pin marker or tap anywhere on the map to pinpoint their exact doorstep or building entrance.
+- **Two-Way Sync**: Moving the map marker triggers debounced reverse geocoding to update the street and locality fields while preserving the customer's typed name, phone, and building numbers.
+
+### C. Manual Entry & Data Integrity
+- Customers can edit every address field freely at all times. GPS is never mandatory.
+- MongoDB records the confirmed delivery address, latitude, longitude, area, landmark, and source (`GPS`, `MAP_PICKER`, or `MANUAL`).
+- Coordinates and live Google Maps navigation links appear on Customer Order Details, Admin Order Management, PDF Tax Invoices, and lifecycle emails.
+
+---
+
+## 7. Verification Checklist
+
+- [x] Backend tests pass (`node --test tests/api.test.js` in `backend/` - 21/21 tests passing).
 - [x] Customer Frontend builds cleanly (`npm run build` in `customer-frontend/`).
 - [x] Admin Frontend builds cleanly (`npm run build` in `admin-frontend/`).
 - [x] Guest shopping preserves items and merges seamlessly upon login.
@@ -227,3 +249,4 @@ ADMIN_EMAIL=shoppe.aurafashion@gmail.com
 - [x] Printable PDF Tax Invoices render with shop name, Kainath, Bengaluru, and contact info.
 - [x] Brevo SMTP connection verified and test emails deliverable via Admin Dashboard.
 - [x] Password recovery workflow end-to-end verified with SHA-256 cryptographic tokens.
+- [x] GPS detection, Leaflet interactive map, reverse geocoding, and manual entry verified.

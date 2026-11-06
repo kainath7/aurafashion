@@ -7,11 +7,20 @@ const addressSchema = new mongoose.Schema(
     phone: { type: String, required: true },
     houseNo: { type: String, required: true },
     street: { type: String, required: true },
-    landmark: { type: String },
+    area: { type: String, default: '' },
+    landmark: { type: String, default: '' },
     city: { type: String, required: true },
     state: { type: String, required: true },
     pincode: { type: String, required: true },
-    isDefault: { type: Boolean, default: false }
+    isDefault: { type: Boolean, default: false },
+    latitude: { type: Number, default: null },
+    longitude: { type: Number, default: null },
+    formattedAddress: { type: String, default: '' },
+    addressSource: {
+      type: String,
+      enum: ['GPS', 'MANUAL', 'MAP_PICKER'],
+      default: 'MANUAL'
+    }
   },
   { _id: true }
 );

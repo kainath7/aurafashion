@@ -182,10 +182,15 @@ const renderAddressCard = (addr = {}) => {
       </div>
       <div style="font-size: 13px; font-weight: bold; color: #1c1917;">${addr.fullName || ''}</div>
       <div style="font-size: 12px; color: #57534e; line-height: 18px; margin-top: 3px;">
-        ${addr.houseNo ? `${addr.houseNo}, ` : ''}${addr.street || ''}<br>
+        ${addr.houseNo ? `${addr.houseNo}, ` : ''}${addr.street || ''}${addr.area ? `, ${addr.area}` : ''}<br>
         ${addr.landmark ? `Landmark: ${addr.landmark}<br>` : ''}
         ${addr.city || ''}, ${addr.state || ''} - <strong>${addr.pincode || ''}</strong><br>
         Phone: <strong>${addr.phone || ''}</strong>
+        ${
+          addr.latitude && addr.longitude
+            ? `<br><a href="https://www.google.com/maps?q=${addr.latitude},${addr.longitude}" target="_blank" style="color: ${BRAND_COLOR}; text-decoration: underline; font-weight: 600; font-size: 11px;">📍 View Exact GPS Delivery Pin</a>`
+            : ''
+        }
       </div>
     </div>
   `;
