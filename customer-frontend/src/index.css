@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply antialiased;
+  }
+}
+
+/* Custom smooth scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #F5EFEB;
+}
+::-webkit-scrollbar-thumb {
+  background: #C2898C;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #832729;
+}
