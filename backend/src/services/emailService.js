@@ -1,4 +1,14 @@
 import nodemailer from 'nodemailer';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
+import mongoose from 'mongoose';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+dotenv.config();
+
 import EmailLog from '../models/EmailLog.js';
 import Order from '../models/Order.js';
 import StoreSettings from '../models/StoreSettings.js';
@@ -158,7 +168,7 @@ export const sendEmail = async ({
       });
 
       // Atomically track on Order document if orderId provided
-      if (orderId) {
+      if (orderId && mongoose.connection?.readyState === 1) {
         try {
           await Order.findByIdAndUpdate(orderId, {
             $push: {
@@ -205,7 +215,9 @@ export const sendEmail = async ({
 // Helper to safely record EmailLog in MongoDB
 const logEmail = async (data) => {
   try {
-    await EmailLog.create(data);
+    if (mongoose.connection?.readyState === 1) {
+      await EmailLog.create(data);
+    }
   } catch (err) {
     console.warn('[EmailLog Warning] Could not record email log:', err.message);
   }
