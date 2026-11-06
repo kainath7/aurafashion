@@ -9,7 +9,8 @@ import {
   toggleWishlist,
   getWishlist,
   forgotPassword,
-  resetPassword
+  resetPassword,
+  validateResetToken
 } from '../controllers/authController.js';
 import { protectCustomer } from '../middleware/auth.js';
 import { authLimiter } from '../middleware/rateLimiter.js';
@@ -19,6 +20,7 @@ const router = express.Router();
 router.post('/register', authLimiter, registerCustomer);
 router.post('/login', authLimiter, loginCustomer);
 router.post('/forgot-password', authLimiter, forgotPassword);
+router.get('/reset-password/:token', authLimiter, validateResetToken);
 router.put('/reset-password/:token', authLimiter, resetPassword);
 
 router.get('/me', protectCustomer, getCustomerProfile);

@@ -15,6 +15,7 @@ interface AuthContextType {
   deleteAddress: (addressId: string) => Promise<Address[]>;
   wishlistIds: string[];
   toggleWishlist: (productId: string) => Promise<boolean>;
+  setAuthSession: (token: string, user: User) => void;
 }
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
@@ -127,6 +128,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return false;
   };
 
+  const setAuthSession = (newToken: string, newUser: User) => {
+    localStorage.setItem('aura_customer_token', newToken);
+    setToken(newToken);
+    setUser(newUser);
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -141,7 +148,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         addAddress,
         deleteAddress,
         wishlistIds,
-        toggleWishlist
+        toggleWishlist,
+        setAuthSession
       }}
     >
       {children}

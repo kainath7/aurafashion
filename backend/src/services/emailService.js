@@ -364,8 +364,11 @@ export const sendRefundProcessedEmail = async (order, refundAmount) => {
 };
 
 // 7. Password Reset Email
-export const sendPasswordResetEmail = async (user, rawToken) => {
-  const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+export const sendPasswordResetEmail = async (user, rawToken, originUrl = null) => {
+  let clientUrl = (process.env.CLIENT_URL || 'http://localhost:5173').replace(/\/+$/, '');
+  if (originUrl && (originUrl.startsWith('http://localhost') || originUrl.startsWith('https://'))) {
+    clientUrl = originUrl.replace(/\/+$/, '');
+  }
   const resetUrl = `${clientUrl}/reset-password/${rawToken}`;
 
   const { subject, html, text } = passwordResetTemplate({

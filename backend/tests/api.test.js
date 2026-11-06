@@ -303,7 +303,14 @@ describe('Aura Fashion E-Commerce Backend Test Suite', () => {
     assert.ok(res.body.stats.totalRevenue > 0);
   });
 
-  test('15. Forgot Password Security (User Enumeration Prevention)', async () => {
+  test('15. Forgot Password Security (User Enumeration Prevention & Email Validation)', async () => {
+    // Malformed email should return 400
+    const resInvalidEmail = await request.post('/api/auth/forgot-password').send({
+      email: 'not-an-email'
+    });
+    assert.equal(resInvalidEmail.status, 400);
+    assert.equal(resInvalidEmail.body.success, false);
+
     // Non-existent email should return generic 200 success without leaking existence
     const resNonExistent = await request.post('/api/auth/forgot-password').send({
       email: 'nonexistent.user@example.com'
@@ -326,7 +333,7 @@ describe('Aura Fashion E-Commerce Backend Test Suite', () => {
     assert.ok(user.resetPasswordExpire > Date.now());
   });
 
-  test('16. Password Reset Token Workflow & Single-Use Invalidation', async () => {
+  test('16. Password Reset Token Validation, Workflow & Single-Use Invalidation', async () => {
     // Set a known plaintext token and store sha256 hash in database
     const rawToken = 'testresettoken1234567890abcdef';
     const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
@@ -339,14 +346,64 @@ describe('Aura Fashion E-Commerce Backend Test Suite', () => {
       }
     );
 
-    // Test 16a: Invalid token should be rejected with 400
+    // Test 16a: Validate token endpoint GET with invalid token
+    const resValidateInvalid = await request.get('/api/auth/reset-password/invalidrawtoken999');
+    assert.equal(resValidateInvalid.status, 400);
+    assert.equal(resValidateInvalid.body.valid, false);
+
+    // Test 16b: Validate token endpoint GET with valid token
+    const resValidateValid = await request.get(`/api/auth/reset-password/${rawToken}`);
+    assert.equal(resValidateValid.status, 200);
+    assert.equal(resValidateValid.body.valid, true);
+    assert.equal(resValidateValid.body.email, 'priya@example.com');
+
+    // Test 16c: Validation with expired token
+    const expiredRawToken = 'expiredtoken123456789';
+    const expiredHashedToken = crypto.createHash('sha256').update(expiredRawToken).digest('hex');
+    await User.updateOne(
+      { email: 'priya@example.com' },
+      {
+        resetPasswordToken: expiredHashedToken,
+        resetPasswordExpire: Date.now() - 60 * 1000 // 1 minute in past
+      }
+    );
+
+    const resValidateExpired = await request.get(`/api/auth/reset-password/${expiredRawToken}`);
+    assert.equal(resValidateExpired.status, 400);
+    assert.equal(resValidateExpired.body.valid, false);
+    assert.ok(resValidateExpired.body.message.includes('expired'));
+
+    // Re-set valid token for reset execution tests
+    await User.updateOne(
+      { email: 'priya@example.com' },
+      {
+        resetPasswordToken: hashedToken,
+        resetPasswordExpire: Date.now() + 20 * 60 * 1000
+      }
+    );
+
+    // Test 16d: Mismatched confirmPassword should fail
+    const resMismatch = await request
+      .put(`/api/auth/reset-password/${rawToken}`)
+      .send({ password: 'BrandNewPassword@2026', confirmPassword: 'DifferentPassword@2026' });
+    assert.equal(resMismatch.status, 400);
+    assert.equal(resMismatch.body.success, false);
+
+    // Test 16e: Password too short should fail
+    const resShort = await request
+      .put(`/api/auth/reset-password/${rawToken}`)
+      .send({ password: '123' });
+    assert.equal(resShort.status, 400);
+    assert.equal(resShort.body.success, false);
+
+    // Test 16f: Invalid token should be rejected with 400
     const resInvalid = await request
       .put('/api/auth/reset-password/invalidrawtoken999')
       .send({ password: 'BrandNewPassword@2026' });
     assert.equal(resInvalid.status, 400);
     assert.equal(resInvalid.body.success, false);
 
-    // Test 16b: Valid token should successfully reset password
+    // Test 16g: Valid token should successfully reset password
     const resValid = await request
       .put(`/api/auth/reset-password/${rawToken}`)
       .send({ password: 'BrandNewPassword@2026' });
@@ -359,19 +416,35 @@ describe('Aura Fashion E-Commerce Backend Test Suite', () => {
     assert.equal(userAfter.resetPasswordToken, undefined);
     assert.equal(userAfter.resetPasswordExpire, undefined);
 
-    // Test 16c: Token reuse attempt must be rejected with 400
+    // Test 16h: Token reuse attempt must be rejected with 400
     const resReuse = await request
       .put(`/api/auth/reset-password/${rawToken}`)
       .send({ password: 'AnotherPassword@2026' });
     assert.equal(resReuse.status, 400);
 
-    // Test 16d: Login with new password succeeds
+    // Test 16i: Login with OLD password fails
+    const resOldLogin = await request.post('/api/auth/login').send({
+      email: 'priya@example.com',
+      password: 'OldPassword@2026'
+    });
+    assert.equal(resOldLogin.status, 401);
+
+    // Test 16j: Login with new password succeeds
     const resLogin = await request.post('/api/auth/login').send({
       email: 'priya@example.com',
       password: 'BrandNewPassword@2026'
     });
     assert.equal(resLogin.status, 200);
     assert.equal(resLogin.body.success, true);
+
+    // Test 16k: Existing profile update functionality continues to work flawlessly
+    const resProfile = await request
+      .put('/api/auth/profile')
+      .set('Authorization', `Bearer ${resLogin.body.token}`)
+      .send({ name: 'Priya Sharma Updated', phone: '9876543210' });
+    assert.equal(resProfile.status, 200);
+    assert.equal(resProfile.body.success, true);
+    assert.equal(resProfile.body.user.name, 'Priya Sharma Updated');
   });
 
   test('17. Admin Email Audit Logs Endpoint', async () => {
