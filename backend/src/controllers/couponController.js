@@ -1,4 +1,5 @@
 import Coupon from '../models/Coupon.js';
+import { broadcastEvent } from '../sockets/socketHandler.js';
 
 // @desc    Validate coupon code against order subtotal
 // @route   POST /api/coupons/validate
@@ -112,6 +113,8 @@ export const createCoupon = async (req, res, next) => {
       isActive: isActive !== undefined ? isActive : true
     });
 
+    broadcastEvent('offer_updated', coupon);
+
     res.status(201).json({
       success: true,
       coupon
@@ -155,6 +158,8 @@ export const updateCoupon = async (req, res, next) => {
 
     await coupon.save();
 
+    broadcastEvent('offer_updated', coupon);
+
     res.json({
       success: true,
       coupon
@@ -175,6 +180,8 @@ export const deleteCoupon = async (req, res, next) => {
     }
 
     await coupon.deleteOne();
+
+    broadcastEvent('offer_updated', { couponId: req.params.id, deleted: true });
 
     res.json({
       success: true,

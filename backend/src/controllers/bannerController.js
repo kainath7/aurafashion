@@ -1,5 +1,6 @@
 import Banner from '../models/Banner.js';
 import { uploadToCloudinary } from '../config/cloudinary.js';
+import { broadcastEvent } from '../sockets/socketHandler.js';
 
 // @desc    Get active banners (for homepage / promotions)
 // @route   GET /api/banners
@@ -68,6 +69,8 @@ export const createBanner = async (req, res, next) => {
       isActive: isActive !== undefined ? isActive === 'true' || isActive === true : true
     });
 
+    broadcastEvent('banner_updated', banner);
+
     res.status(201).json({
       success: true,
       banner
@@ -107,6 +110,8 @@ export const updateBanner = async (req, res, next) => {
 
     await banner.save();
 
+    broadcastEvent('banner_updated', banner);
+
     res.json({
       success: true,
       banner
@@ -127,6 +132,8 @@ export const deleteBanner = async (req, res, next) => {
     }
 
     await banner.deleteOne();
+
+    broadcastEvent('banner_updated', { bannerId: req.params.id, deleted: true });
 
     res.json({
       success: true,

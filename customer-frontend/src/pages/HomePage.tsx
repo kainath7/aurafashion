@@ -5,6 +5,7 @@ import api from '../services/api';
 import { ProductCard } from '../components/ProductCard';
 import { Banner, Category, Product } from '../types';
 import { useStoreSettings } from '../context/StoreSettingsContext';
+import { getSocket } from '../services/socket';
 
 export const HomePage: React.FC = () => {
   const { settings } = useStoreSettings();
@@ -34,6 +35,25 @@ export const HomePage: React.FC = () => {
     };
 
     loadHomeData();
+
+    const socket = getSocket();
+    socket.on('banner_updated', loadHomeData);
+    socket.on('category_created', loadHomeData);
+    socket.on('category_updated', loadHomeData);
+    socket.on('category_deleted', loadHomeData);
+    socket.on('product_created', loadHomeData);
+    socket.on('product_updated', loadHomeData);
+    socket.on('product_deleted', loadHomeData);
+
+    return () => {
+      socket.off('banner_updated', loadHomeData);
+      socket.off('category_created', loadHomeData);
+      socket.off('category_updated', loadHomeData);
+      socket.off('category_deleted', loadHomeData);
+      socket.off('product_created', loadHomeData);
+      socket.off('product_updated', loadHomeData);
+      socket.off('product_deleted', loadHomeData);
+    };
   }, []);
 
   // Auto rotate hero banners if multiple

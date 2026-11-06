@@ -1,5 +1,6 @@
 import StoreSettings from '../models/StoreSettings.js';
 import { uploadToCloudinary } from '../config/cloudinary.js';
+import { broadcastEvent } from '../sockets/socketHandler.js';
 
 // @desc    Get public store settings (Shop info, policies, delivery rules, theme)
 // @route   GET /api/settings
@@ -93,6 +94,8 @@ export const updateStoreSettings = async (req, res, next) => {
     }
 
     await settings.save();
+
+    broadcastEvent('store_settings_updated', settings);
 
     res.json({
       success: true,

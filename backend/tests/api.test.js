@@ -121,6 +121,26 @@ describe('Aura Fashion E-Commerce Backend Test Suite', () => {
     variantId = targetVariant._id;
   });
 
+  test('5b. Dynamic Filters Metadata & Multi-attribute Search', async () => {
+    // Test dynamic filter extraction from MongoDB
+    const filterRes = await request.get('/api/products/filters');
+    assert.equal(filterRes.status, 200);
+    assert.equal(filterRes.body.success, true);
+    assert.ok(Array.isArray(filterRes.body.filters.sizes));
+    assert.ok(filterRes.body.filters.sizes.includes('M'));
+    assert.ok(filterRes.body.filters.colors.some((c) => c.color === 'Wine Red'));
+    assert.ok(filterRes.body.filters.brands.includes('Aura Fashion'));
+    assert.ok(filterRes.body.filters.fabrics.includes('Pure Georgette'));
+    assert.equal(filterRes.body.filters.priceRange.min, 2999);
+
+    // Test product filtering by variant attributes
+    const searchRes = await request.get('/api/products?size=M&color=Wine%20Red&brand=Aura%20Fashion');
+    assert.equal(searchRes.status, 200);
+    assert.equal(searchRes.body.success, true);
+    assert.equal(searchRes.body.products.length, 1);
+    assert.equal(searchRes.body.products[0].name, 'Aura Royal Georgette Kurti');
+  });
+
   test('6. Guest Shopping - Cart Validation without Authentication', async () => {
     const res = await request.post('/api/cart/guest/validate').send({
       items: [

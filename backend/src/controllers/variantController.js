@@ -1,6 +1,7 @@
 import ProductVariant from '../models/ProductVariant.js';
 import Product from '../models/Product.js';
 import InventoryTransaction from '../models/InventoryTransaction.js';
+import { broadcastEvent } from '../sockets/socketHandler.js';
 
 // @desc    Get all variants for inventory management (with search, low stock filter)
 // @route   GET /api/variants/inventory
@@ -93,6 +94,13 @@ export const adjustVariantStock = async (req, res, next) => {
       performedBy: req.admin?.name || 'Admin'
     });
 
+    broadcastEvent('inventory_updated', {
+      variantId: variant._id,
+      productId: variant.product,
+      newStock: stockVal,
+      previousStock
+    });
+
     res.json({
       success: true,
       variant,
@@ -142,6 +150,12 @@ export const addVariant = async (req, res, next) => {
       });
     }
 
+    broadcastEvent('inventory_updated', {
+      variantId: variant._id,
+      productId: product._id,
+      newStock: variant.stockQuantity
+    });
+
     res.status(201).json({
       success: true,
       variant
@@ -161,7 +175,13 @@ export const deleteVariant = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Variant not found' });
     }
 
+    const productId = variant.product;
     await variant.deleteOne();
+
+    broadcastEvent('inventory_updated', {
+      variantId: req.params.id,
+      productId
+    });
 
     res.json({
       success: true,

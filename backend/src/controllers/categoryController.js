@@ -1,5 +1,6 @@
 import Category from '../models/Category.js';
 import { uploadToCloudinary } from '../config/cloudinary.js';
+import { broadcastEvent } from '../sockets/socketHandler.js';
 
 // Helper to slugify category names
 const slugify = (text) => {
@@ -121,6 +122,8 @@ export const createCategory = async (req, res, next) => {
       image
     });
 
+    broadcastEvent('category_created', category);
+
     res.status(201).json({
       success: true,
       category
@@ -163,6 +166,8 @@ export const updateCategory = async (req, res, next) => {
 
     await category.save();
 
+    broadcastEvent('category_updated', category);
+
     res.json({
       success: true,
       category
@@ -192,6 +197,8 @@ export const deleteCategory = async (req, res, next) => {
     }
 
     await category.deleteOne();
+
+    broadcastEvent('category_deleted', { categoryId: req.params.id });
 
     res.json({
       success: true,

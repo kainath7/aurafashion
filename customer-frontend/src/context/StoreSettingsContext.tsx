@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import api from '../services/api';
 import { StoreSettings } from '../types';
+import { getSocket } from '../services/socket';
 
 interface StoreSettingsContextType {
   settings: StoreSettings;
@@ -60,6 +61,20 @@ export const StoreSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
 
   useEffect(() => {
     fetchSettings();
+
+    const socket = getSocket();
+    const handleSettingsUpdate = (updatedSettings: StoreSettings) => {
+      if (updatedSettings && typeof updatedSettings === 'object') {
+        setSettings(updatedSettings);
+      } else {
+        fetchSettings();
+      }
+    };
+
+    socket.on('store_settings_updated', handleSettingsUpdate);
+    return () => {
+      socket.off('store_settings_updated', handleSettingsUpdate);
+    };
   }, []);
 
   return (

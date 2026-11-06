@@ -204,3 +204,43 @@ export interface Banner {
   displayOrder: number;
   isActive: boolean;
 }
+
+export interface FilterCategoryItem {
+  _id: string;
+  name: string;
+  slug: string;
+  productCount: number;
+  subcategories?: {
+    _id: string;
+    name: string;
+    slug: string;
+    productCount: number;
+  }[];
+}
+
+export interface FilterColorItem {
+  color: string;
+  colorCode: string;
+}
+
+export interface FilterSpecification {
+  key: string;
+  options: string[];
+}
+
+export interface FilterMetadata {
+  categories: FilterCategoryItem[];
+  brands: string[];
+  fabrics: string[];
+  sizes: string[];
+  colors: FilterColorItem[];
+  priceRange: {
+    min: number;
+    max: number;
+  };
+  specifications: FilterSpecification[];
+  ratings: { rating: number; label: string }[];
+  discounts: { minDiscount: number; label: string }[];
+  inStockCount: number;
+  totalMatchingProducts: number;
+}

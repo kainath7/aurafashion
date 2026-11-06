@@ -6,6 +6,7 @@ import { useCart } from '../context/CartContext';
 import { useStoreSettings } from '../context/StoreSettingsContext';
 import api from '../services/api';
 import { Category } from '../types';
+import { getSocket } from '../services/socket';
 
 export const Navbar: React.FC = () => {
   const navigate = useNavigate();
@@ -31,6 +32,17 @@ export const Navbar: React.FC = () => {
       }
     };
     fetchNavCategories();
+
+    const socket = getSocket();
+    socket.on('category_created', fetchNavCategories);
+    socket.on('category_updated', fetchNavCategories);
+    socket.on('category_deleted', fetchNavCategories);
+
+    return () => {
+      socket.off('category_created', fetchNavCategories);
+      socket.off('category_updated', fetchNavCategories);
+      socket.off('category_deleted', fetchNavCategories);
+    };
   }, []);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
