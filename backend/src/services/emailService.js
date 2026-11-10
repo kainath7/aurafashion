@@ -27,36 +27,126 @@ import {
 } from './emailTemplates.js';
 
 let transporterInstance = null;
+let activeWorkingPort = null;
 
-// Create and cache Nodemailer transporter
-const getTransporter = () => {
-  if (!transporterInstance) {
-    const host = process.env.EMAIL_HOST || 'smtp-relay.brevo.com';
-    const port = Number(process.env.EMAIL_PORT) || 587;
-    const user = process.env.EMAIL_USER;
-    const pass = process.env.EMAIL_PASS;
+// Parse "Name <email@domain.com>" sender strings for REST APIs
+const parseSender = (fromStr) => {
+  const fallbackEmail = 'shoppe.aurafashion@gmail.com';
+  if (!fromStr) return { name: 'Aura Fashion', email: fallbackEmail };
+  const match = fromStr.match(/^(?:([^<]+)\s*<)?([^>]+)>?$/);
+  if (match) {
+    return {
+      name: (match[1] || 'Aura Fashion').trim(),
+      email: (match[2] || fallbackEmail).trim()
+    };
+  }
+  return { name: 'Aura Fashion', email: fromStr.trim() };
+};
 
-    transporterInstance = nodemailer.createTransport({
-      host,
-      port,
-      secure: port === 465, // true for 465, false for 587
-      auth: {
-        user,
-        pass
-      },
-      tls: {
-        rejectUnauthorized: false
-      },
-      connectionTimeout: 10000,
-      greetingTimeout: 10000,
-      socketTimeout: 15000
-    });
+// Dispatch via Brevo Official HTTPS REST API (Port 443 - Bypasses all cloud hosting SMTP blocks)
+const sendViaBrevoApi = async ({ apiKey, from, to, subject, html, text }) => {
+  const sender = parseSender(from);
+  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      'accept': 'application/json',
+      'content-type': 'application/json',
+      'api-key': apiKey.trim()
+    },
+    body: JSON.stringify({
+      sender,
+      to: [{ email: to.trim().toLowerCase() }],
+      subject,
+      htmlContent: html,
+      textContent: text || undefined
+    })
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.message || `Brevo API returned HTTP ${response.status}`);
+  }
+
+  return { messageId: data.messageId || `<brevo-api-${Date.now()}@brevo.com>` };
+};
+
+// Dispatch via Resend Official HTTPS REST API (Port 443 - Optional Alternative)
+const sendViaResendApi = async ({ apiKey, from, to, subject, html, text }) => {
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'accept': 'application/json',
+      'content-type': 'application/json',
+      'Authorization': `Bearer ${apiKey.trim()}`
+    },
+    body: JSON.stringify({
+      from,
+      to: [to.trim().toLowerCase()],
+      subject,
+      html,
+      text: text || undefined
+    })
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.message || `Resend API returned HTTP ${response.status}`);
+  }
+
+  return { messageId: data.id || `<resend-api-${Date.now()}@resend.com>` };
+};
+
+// Create Nodemailer transporter with port auto-selection (2525 / 587)
+const createTransporter = (targetPort) => {
+  const host = process.env.EMAIL_HOST || 'smtp-relay.brevo.com';
+  const port = targetPort || activeWorkingPort || Number(process.env.EMAIL_PORT) || 2525;
+  const user = process.env.EMAIL_USER;
+  const pass = process.env.EMAIL_PASS;
+
+  return nodemailer.createTransport({
+    host,
+    port,
+    secure: port === 465,
+    auth: {
+      user,
+      pass
+    },
+    tls: {
+      rejectUnauthorized: false
+    },
+    connectionTimeout: 8000,
+    greetingTimeout: 8000,
+    socketTimeout: 12000
+  });
+};
+
+const getTransporter = (port) => {
+  if (port || !transporterInstance) {
+    const t = createTransporter(port);
+    if (!port) transporterInstance = t;
+    return t;
   }
   return transporterInstance;
 };
 
-// Verify SMTP connectivity
+// Verify email delivery connectivity (HTTPS API or SMTP)
 export const verifySmtpConnection = async () => {
+  const brevoApiKey = process.env.BREVO_API_KEY || (process.env.EMAIL_PASS?.startsWith('xkeysib-') ? process.env.EMAIL_PASS : null);
+  if (brevoApiKey) {
+    try {
+      const res = await fetch('https://api.brevo.com/v3/account', {
+        headers: { 'api-key': brevoApiKey.trim() }
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        return { success: true, message: `Brevo HTTPS API (Port 443) connected successfully! Account: ${data.email || 'Active'}` };
+      }
+      return { success: false, message: data.message || `Brevo API returned HTTP ${res.status}` };
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  }
+
   try {
     const transporter = getTransporter();
     await transporter.verify();
@@ -135,16 +225,100 @@ export const sendEmail = async ({
   }
 
   const fromAddress = process.env.EMAIL_FROM || 'Aura Fashion <shoppe.aurafashion@gmail.com>';
-  const transporter = getTransporter();
+  const brevoApiKey = process.env.BREVO_API_KEY || (process.env.EMAIL_PASS?.startsWith('xkeysib-') ? process.env.EMAIL_PASS : null);
+  const resendApiKey = process.env.RESEND_API_KEY;
 
-  // 3. Dispatch with retry logic
-  let attempts = 0;
-  const maxAttempts = 2;
+  // 3. Priority 1: Dispatch via Brevo HTTPS REST API (Port 443 - zero firewall timeout)
+  if (brevoApiKey) {
+    try {
+      const info = await sendViaBrevoApi({
+        apiKey: brevoApiKey,
+        from: fromAddress,
+        to: recipient,
+        subject,
+        html,
+        text
+      });
+
+      console.log(`[Email Sent via Brevo HTTPS API] ${emailType} to ${recipient} | MessageId: ${info.messageId}`);
+      await logEmail({
+        recipient,
+        emailType,
+        subject,
+        orderId,
+        orderNumber,
+        status: 'SENT',
+        messageId: info.messageId,
+        attempts: 1,
+        metadata
+      });
+
+      if (orderId && mongoose.connection?.readyState === 1) {
+        try {
+          await Order.findByIdAndUpdate(orderId, {
+            $push: {
+              sentEmails: {
+                emailType,
+                recipient,
+                sentAt: new Date(),
+                messageId: info.messageId
+              }
+            }
+          });
+        } catch (e) {
+          // Non-blocking
+        }
+      }
+
+      return { success: true, messageId: info.messageId };
+    } catch (apiErr) {
+      console.warn(`[Brevo API Error] ${emailType} to ${recipient}: ${apiErr.message}`);
+      // Fall through to SMTP if API fails
+    }
+  } else if (resendApiKey) {
+    try {
+      const info = await sendViaResendApi({
+        apiKey: resendApiKey,
+        from: fromAddress,
+        to: recipient,
+        subject,
+        html,
+        text
+      });
+
+      console.log(`[Email Sent via Resend HTTPS API] ${emailType} to ${recipient} | MessageId: ${info.messageId}`);
+      await logEmail({
+        recipient,
+        emailType,
+        subject,
+        orderId,
+        orderNumber,
+        status: 'SENT',
+        messageId: info.messageId,
+        attempts: 1,
+        metadata
+      });
+
+      return { success: true, messageId: info.messageId };
+    } catch (apiErr) {
+      console.warn(`[Resend API Error] ${emailType} to ${recipient}: ${apiErr.message}`);
+    }
+  }
+
+  // 4. Priority 2: Nodemailer SMTP with Smart Port Failover (2525 -> 587)
+  const host = process.env.EMAIL_HOST || 'smtp-relay.brevo.com';
+  const configuredPort = Number(process.env.EMAIL_PORT) || 2525;
+  const portsToTry = host.includes('brevo.com')
+    ? (configuredPort === 587 ? [2525, 587] : [configuredPort, 2525])
+    : [configuredPort];
+
   let lastError = null;
+  let attempts = 0;
 
-  while (attempts < maxAttempts) {
+  for (const port of portsToTry) {
     attempts++;
     try {
+      const transporter = getTransporter(port);
       const info = await transporter.sendMail({
         from: fromAddress,
         to: recipient,
@@ -153,7 +327,8 @@ export const sendEmail = async ({
         text
       });
 
-      console.log(`[Email Sent] ${emailType} to ${recipient} | MessageId: ${info.messageId}`);
+      activeWorkingPort = port;
+      console.log(`[Email Sent via SMTP:${port}] ${emailType} to ${recipient} | MessageId: ${info.messageId}`);
 
       // Log success
       await logEmail({
@@ -165,7 +340,7 @@ export const sendEmail = async ({
         status: 'SENT',
         messageId: info.messageId,
         attempts,
-        metadata
+        metadata: { ...metadata, port }
       });
 
       // Atomically track on Order document if orderId provided
@@ -189,12 +364,23 @@ export const sendEmail = async ({
       return { success: true, messageId: info.messageId };
     } catch (err) {
       lastError = err;
-      console.warn(`[Email Attempt ${attempts}/${maxAttempts} Failed] ${emailType} to ${recipient}: ${err.message}`);
-      if (attempts < maxAttempts) {
-        // Wait 1 second before retry
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+      console.warn(`[Email SMTP Port ${port} Failed] ${emailType} to ${recipient}: ${err.message}`);
+      if (attempts < portsToTry.length) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
       }
     }
+  }
+
+  // Check if error is due to Render Free firewall blocking SMTP
+  let friendlyError = lastError?.message || 'SMTP send failure';
+  if (
+    lastError &&
+    (lastError.message?.toLowerCase().includes('timeout') ||
+      lastError.code === 'ETIMEDOUT' ||
+      lastError.code === 'ECONNREFUSED')
+  ) {
+    friendlyError =
+      'Cloud hosting (Render Free) blocked outbound SMTP ports. To bypass this instantly: Generate a free Brevo API Key (starts with xkeysib-) in Brevo > SMTP & API > API Keys, and add it to Render Environment Variables as BREVO_API_KEY (sends via HTTPS Port 443).';
   }
 
   // Log permanent failure
@@ -205,12 +391,12 @@ export const sendEmail = async ({
     orderId,
     orderNumber,
     status: 'FAILED',
-    error: lastError?.message || 'SMTP send failure',
+    error: friendlyError,
     attempts,
     metadata
   });
 
-  return { success: false, error: lastError?.message };
+  return { success: false, error: friendlyError };
 };
 
 // Helper to safely record EmailLog in MongoDB
