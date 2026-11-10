@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { ShoppingBag, Heart, User as UserIcon, Search, Menu, X, ChevronDown, LogOut, Package } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
+import { useWishlist } from '../context/WishlistContext';
 import { useStoreSettings } from '../context/StoreSettingsContext';
 import api from '../services/api';
 import { Category } from '../types';
@@ -10,8 +11,9 @@ import { getSocket } from '../services/socket';
 
 export const Navbar: React.FC = () => {
   const navigate = useNavigate();
-  const { user, isAuthenticated, logout, wishlistIds } = useAuth();
+  const { user, isAuthenticated, logout } = useAuth();
   const { cartCount, setIsCartOpen } = useCart();
+  const { wishlistCount } = useWishlist();
   const { settings } = useStoreSettings();
 
   const [categories, setCategories] = useState<Category[]>([]);
@@ -177,9 +179,9 @@ export const Navbar: React.FC = () => {
               title="Saved Wishlist"
             >
               <Heart className="w-5 h-5" />
-              {wishlistIds.length > 0 && (
-                <span className="absolute top-1 right-1 w-4 h-4 bg-[#832729] text-white text-[10px] font-bold rounded-full flex items-center justify-center">
-                  {wishlistIds.length}
+              {wishlistCount > 0 && (
+                <span className="absolute top-1 right-1 w-4 h-4 bg-[#832729] text-white text-[10px] font-bold rounded-full flex items-center justify-center animate-pulse">
+                  {wishlistCount}
                 </span>
               )}
             </Link>
@@ -227,6 +229,20 @@ export const Navbar: React.FC = () => {
             className="block py-2 text-base font-medium text-stone-800 border-b border-stone-100"
           >
             All Collections
+          </Link>
+          <Link
+            to="/wishlist"
+            onClick={() => setMobileMenuOpen(false)}
+            className="flex items-center justify-between py-2 text-base font-semibold text-stone-800 border-b border-stone-100"
+          >
+            <span className="flex items-center gap-2">
+              <Heart className="w-5 h-5 text-[#832729]" /> Saved Wishlist
+            </span>
+            {wishlistCount > 0 && (
+              <span className="px-2 py-0.5 bg-[#832729] text-white text-[10px] font-bold rounded-full">
+                {wishlistCount}
+              </span>
+            )}
           </Link>
           <Link
             to="/track-order"

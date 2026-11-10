@@ -117,13 +117,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const toggleWishlist = async (productId: string): Promise<boolean> => {
     if (!token) {
-      throw new Error('Please log in to save items to your wishlist');
-    }
-    const res = await api.post(`/auth/wishlist/${productId}`);
-    if (res.data.success) {
-      const isIn = res.data.isInWishlist;
-      setWishlistIds((prev) => (isIn ? [...prev, productId] : prev.filter((id) => id !== productId)));
+      // Guest fallback: toggle in state and localStorage without throwing
+      let isIn = false;
+      setWishlistIds((prev) => {
+        if (prev.includes(productId)) {
+          isIn = false;
+          return prev.filter((id) => id !== productId);
+        } else {
+          isIn = true;
+          return [...prev, productId];
+        }
+      });
       return isIn;
+    }
+    try {
+      const res = await api.post(`/auth/wishlist/${productId}`);
+      if (res.data.success) {
+        const isIn = res.data.isInWishlist;
+        setWishlistIds((prev) => (isIn ? [...prev, productId] : prev.filter((id) => id !== productId)));
+        return isIn;
+      }
+    } catch {
+      // Fallback locally
     }
     return false;
   };

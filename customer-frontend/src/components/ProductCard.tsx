@@ -2,7 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { Heart } from 'lucide-react';
 import { Product } from '../types';
-import { useAuth } from '../context/AuthContext';
+import { useWishlist } from '../context/WishlistContext';
 import { getImageUrl, handleImageError } from '../utils/imageUrl';
 
 interface ProductCardProps {
@@ -10,8 +10,8 @@ interface ProductCardProps {
 }
 
 export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
-  const { wishlistIds, toggleWishlist } = useAuth();
-  const isWishlisted = wishlistIds.includes(product._id);
+  const { isInWishlist, toggleWishlist } = useWishlist();
+  const isWishlisted = isInWishlist(product._id);
 
   const rawPrimary = product.images?.find((img) => img.isPrimary)?.url || product.images?.[0]?.url;
   const rawSecondary = product.images?.[1]?.url || rawPrimary;

@@ -16,7 +16,7 @@ import {
 import api from '../services/api';
 import { Product, ProductVariant } from '../types';
 import { useCart } from '../context/CartContext';
-import { useAuth } from '../context/AuthContext';
+import { useWishlist } from '../context/WishlistContext';
 import { useStoreSettings } from '../context/StoreSettingsContext';
 import { ProductCard } from '../components/ProductCard';
 import { getImageUrl, handleImageError, FALLBACK_PRODUCT_IMAGE } from '../utils/imageUrl';
@@ -89,7 +89,7 @@ const RecommendationRow: React.FC<RecommendationRowProps> = ({ title, subtitle, 
 export const ProductDetailPage: React.FC = () => {
   const { idOrSlug } = useParams<{ idOrSlug: string }>();
   const { addToCart } = useCart();
-  const { wishlistIds, toggleWishlist } = useAuth();
+  const { isInWishlist, toggleWishlist } = useWishlist();
   const { settings } = useStoreSettings();
 
   const [product, setProduct] = useState<Product | null>(null);
@@ -212,7 +212,7 @@ export const ProductDetailPage: React.FC = () => {
     ? Math.round(((product.basePrice - product.discountPrice!) / product.basePrice) * 100)
     : 0;
 
-  const isWishlisted = wishlistIds.includes(product._id);
+  const isWishlisted = isInWishlist(product._id);
 
   const handleAddToCart = async () => {
     setActionError('');

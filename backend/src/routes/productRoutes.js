@@ -4,6 +4,7 @@ import {
   getProductByIdOrSlug,
   getProductRecommendations,
   getFilterMetadata,
+  getProductsBatch,
   createProduct,
   updateProduct,
   deleteProduct
@@ -15,6 +16,8 @@ const router = express.Router();
 
 router.get('/', getProducts);
 router.get('/filters', getFilterMetadata);
+router.get('/batch', getProductsBatch);
+router.post('/batch', getProductsBatch);
 router.get('/:idOrSlug/recommendations', getProductRecommendations);
 router.get('/:idOrSlug', getProductByIdOrSlug);
 

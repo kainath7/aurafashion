@@ -1004,3 +1004,49 @@ export const deleteProduct = async (req, res, next) => {
     next(error);
   }
 };
+
+// @desc    Get products by list of IDs (batch for guest wishlist, cart hydration, etc.)
+// @route   POST /api/products/batch, GET /api/products/batch
+// @access  Public (Guest friendly)
+export const getProductsBatch = async (req, res, next) => {
+  try {
+    let ids = req.body?.ids;
+    if (!ids && req.query?.ids) {
+      ids = typeof req.query.ids === 'string' ? req.query.ids.split(',') : req.query.ids;
+    }
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.json({ success: true, count: 0, products: [] });
+    }
+
+    const validIds = ids
+      .map((id) => (typeof id === 'string' ? id.trim() : ''))
+      .filter((id) => /^[0-9a-fA-F]{24}$/.test(id));
+
+    if (validIds.length === 0) {
+      return res.json({ success: true, count: 0, products: [] });
+    }
+
+    const rawProducts = await Product.find({ _id: { $in: validIds }, isActive: true })
+      .populate('category', 'name slug')
+      .populate('subcategory', 'name slug')
+      .populate({
+        path: 'variants',
+        match: { isActive: true }
+      });
+
+    const formattedList = rawProducts.map((p) => formatProductForResponse(p, req));
+
+    // Preserve the original requested order
+    const idMap = new Map(formattedList.map((p) => [p._id.toString(), p]));
+    const sortedProducts = validIds.map((id) => idMap.get(id)).filter(Boolean);
+
+    res.json({
+      success: true,
+      count: sortedProducts.length,
+      products: sortedProducts
+    });
+  } catch (error) {
+    next(error);
+  }
+};

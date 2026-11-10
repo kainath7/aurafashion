@@ -802,4 +802,28 @@ describe('Aura Fashion E-Commerce Backend Test Suite', () => {
       assert.notEqual(p._id.toString(), productId.toString());
     });
   });
+
+  test('26. Guest Wishlist - Batch Product Retrieval by IDs', async () => {
+    // 26a: POST /api/products/batch
+    const batchRes = await request
+      .post('/api/products/batch')
+      .send({ ids: [productId.toString(), '6af2b671dee630be4547594e'] });
+    assert.equal(batchRes.status, 200);
+    assert.equal(batchRes.body.success, true);
+    assert.ok(Array.isArray(batchRes.body.products));
+    assert.equal(batchRes.body.products.length, 1);
+    assert.equal(batchRes.body.products[0]._id.toString(), productId.toString());
+
+    // 26b: GET /api/products/batch?ids=...
+    const getBatchRes = await request.get(`/api/products/batch?ids=${productId.toString()}`);
+    assert.equal(getBatchRes.status, 200);
+    assert.equal(getBatchRes.body.success, true);
+    assert.equal(getBatchRes.body.products.length, 1);
+
+    // 26c: Empty IDs handling
+    const emptyBatchRes = await request.post('/api/products/batch').send({ ids: [] });
+    assert.equal(emptyBatchRes.status, 200);
+    assert.equal(emptyBatchRes.body.success, true);
+    assert.equal(emptyBatchRes.body.products.length, 0);
+  });
 });
