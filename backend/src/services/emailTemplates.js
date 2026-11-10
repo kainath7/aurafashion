@@ -44,11 +44,9 @@ const baseLayout = ({ title, preheader = '', content, clientUrl = 'http://localh
               <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
                 <tr>
                   <td align="center">
-                    <span style="font-family: Georgia, serif; font-size: 26px; font-weight: bold; letter-spacing: 4px; color: #ffffff; text-transform: uppercase; display: block;">
-                      AURA FASHION
-                    </span>
-                    <span style="font-size: 10px; font-weight: 600; letter-spacing: 3px; color: ${ACCENT_GOLD}; text-transform: uppercase; margin-top: 6px; display: block;">
-                      Bengaluru • Curated Elegance
+                    <img src="${clientUrl}/logo-white.png" alt="AURA FASHION" style="max-height: 48px; width: auto; max-width: 180px; display: block; margin: 0 auto 6px auto; border: 0;" />
+                    <span style="font-size: 10px; font-weight: 600; letter-spacing: 3px; color: ${ACCENT_GOLD}; text-transform: uppercase; margin-top: 4px; display: block;">
+                      Bengaluru &bull; Curated Elegance
                     </span>
                   </td>
                 </tr>
@@ -603,5 +601,59 @@ export const adminOrderCancelledAlertTemplate = ({ order, reason, adminUrl = 'ht
     subject: `⚠️ [Order Cancelled] #${order.orderNumber} by ${order.customerInfo?.name}`,
     html: baseLayout({ title: `Order Cancelled #${order.orderNumber}`, preheader: `Customer ${order.customerInfo?.name} cancelled order #${order.orderNumber}.`, content, clientUrl: adminUrl }),
     text: `Order #${order.orderNumber} cancelled by customer ${order.customerInfo?.name}.\nReason: ${reason || 'None'}\n\nAdmin: ${adminUrl}/orders`
+  };
+};
+
+// 11. ADMIN: OTP SECURITY VERIFICATION TEMPLATE
+export const adminOtpTemplate = ({ adminName, otpCode, purpose = 'Password Recovery', expireMinutes = 5, adminUrl = 'http://localhost:5174' }) => {
+  const content = `
+    <div style="text-align: center; margin-bottom: 24px;">
+      <span style="display: inline-block; background-color: #fef2f2; border: 1px solid #fecaca; color: ${BRAND_COLOR}; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; padding: 6px 14px; border-radius: 9999px;">
+        Administrative Security Verification
+      </span>
+    </div>
+
+    <h2 style="font-family: Georgia, serif; font-size: 22px; color: #1c1917; text-align: center; margin: 0 0 12px 0;">
+      Aura Fashion Administrator Authentication
+    </h2>
+
+    <p style="font-size: 14px; color: #57534e; text-align: center; line-height: 1.6; margin: 0 0 24px 0;">
+      Hello <strong>${adminName || 'Aura Fashion Admin'}</strong>,<br>
+      A security request was initiated for <strong>${purpose}</strong> on your administrative account. Use the one-time verification code below to complete this action:
+    </p>
+
+    <!-- Large 6-digit OTP Box -->
+    <div style="background-color: #fafaf9; border: 2px dashed ${BRAND_COLOR}; border-radius: 12px; padding: 24px; text-align: center; margin: 24px auto; max-width: 320px;">
+      <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; color: #78716c; display: block; margin-bottom: 8px;">
+        Your One-Time Password (OTP)
+      </span>
+      <span style="font-family: 'Courier New', Courier, monospace; font-size: 36px; font-weight: 800; letter-spacing: 10px; color: ${BRAND_COLOR}; display: block; padding-left: 10px;">
+        ${otpCode}
+      </span>
+      <span style="font-size: 12px; color: #b91c1c; font-weight: 600; display: block; margin-top: 10px;">
+        ⏱ Expires in ${expireMinutes} minutes &bull; Single-use only
+      </span>
+    </div>
+
+    <div style="background-color: #fffbeb; border-left: 4px solid ${ACCENT_GOLD}; padding: 12px 16px; border-radius: 4px; margin: 24px 0;">
+      <p style="margin: 0; font-size: 12px; color: #92400e; line-height: 1.5;">
+        <strong>Security Notice:</strong> If you did not initiate this request, someone may be attempting to access the Aura Fashion admin console. Do not share this code with anyone.
+      </p>
+    </div>
+
+    <p style="font-size: 12px; color: #a8a29e; text-align: center; margin: 20px 0 0 0;">
+      Bengaluru Studio &bull; Administrative Control Center &bull; Aura Fashion
+    </p>
+  `;
+
+  return {
+    subject: `🔐 [Aura Fashion] ${otpCode} is your Admin Security OTP (${purpose})`,
+    html: baseLayout({
+      title: `Admin OTP Verification - Aura Fashion`,
+      preheader: `Your single-use Aura Fashion Admin OTP is ${otpCode}. Valid for ${expireMinutes} minutes.`,
+      content,
+      clientUrl: adminUrl
+    }),
+    text: `Aura Fashion Administrator OTP Verification\n\nYour security code is: ${otpCode}\nPurpose: ${purpose}\nValid for: ${expireMinutes} minutes (single-use only).\n\nIf you did not request this, please review your security immediately.`
   };
 };

@@ -5,6 +5,7 @@ import { CheckCircle2, Download, MessageCircle, ArrowRight, Package } from 'luci
 import api from '../services/api';
 import { Order } from '../types';
 import { useStoreSettings } from '../context/StoreSettingsContext';
+import { getImageUrl, handleImageError } from '../utils/imageUrl';
 
 export const OrderSuccessPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -91,8 +92,9 @@ export const OrderSuccessPage: React.FC = () => {
             <div key={item._id} className="pt-3 first:pt-0 flex items-center justify-between text-xs">
               <div className="flex items-center gap-3">
                 <img
-                  src={item.productImage}
+                  src={getImageUrl(item.productImage)}
                   alt={item.productName}
+                  onError={handleImageError}
                   className="w-12 h-14 object-cover rounded bg-stone-100"
                 />
                 <div>

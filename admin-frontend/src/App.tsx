@@ -4,6 +4,7 @@ import { AdminAuthProvider, useAdminAuth } from './context/AdminAuthContext';
 import { AdminLayout } from './components/AdminLayout';
 
 import { AdminLoginPage } from './pages/AdminLoginPage';
+import { AdminForgotPasswordPage } from './pages/AdminForgotPasswordPage';
 import { DashboardOverviewPage } from './pages/DashboardOverviewPage';
 import { ProductManagementPage } from './pages/ProductManagementPage';
 import { InventoryManagementPage } from './pages/InventoryManagementPage';
@@ -37,8 +38,9 @@ export const App: React.FC = () => {
     <Router>
       <AdminAuthProvider>
         <Routes>
-          {/* Public Admin Login Route */}
+          {/* Public Admin Login & Recovery Routes */}
           <Route path="/login" element={<AdminLoginPage />} />
+          <Route path="/forgot-password" element={<AdminForgotPasswordPage />} />
 
           {/* Protected Administrative Console */}
           <Route

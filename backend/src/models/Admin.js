@@ -32,6 +32,36 @@ const adminSchema = new mongoose.Schema(
     },
     lastLogin: {
       type: Date
+    },
+    resetOtpHash: {
+      type: String,
+      default: null,
+      select: false
+    },
+    resetOtpExpires: {
+      type: Date,
+      default: null,
+      select: false
+    },
+    resetOtpAttempts: {
+      type: Number,
+      default: 0,
+      select: false
+    },
+    resetOtpLastSentAt: {
+      type: Date,
+      default: null,
+      select: false
+    },
+    resetOtpVerified: {
+      type: Boolean,
+      default: false,
+      select: false
+    },
+    resetOtpVerifiedExpires: {
+      type: Date,
+      default: null,
+      select: false
     }
   },
   {

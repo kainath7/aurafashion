@@ -1,20 +1,108 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ShoppingBag, Heart, Shield, RefreshCw, Truck, MessageCircle, AlertCircle, Check } from 'lucide-react';
+import {
+  ShoppingBag,
+  Heart,
+  Shield,
+  RefreshCw,
+  Truck,
+  MessageCircle,
+  AlertCircle,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Sparkles
+} from 'lucide-react';
 import api from '../services/api';
 import { Product, ProductVariant } from '../types';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import { useStoreSettings } from '../context/StoreSettingsContext';
 import { ProductCard } from '../components/ProductCard';
+import { getImageUrl, handleImageError, FALLBACK_PRODUCT_IMAGE } from '../utils/imageUrl';
+
+// Reusable horizontal carousel section for recommendations
+interface RecommendationRowProps {
+  title: string;
+  subtitle: string;
+  products: Product[];
+}
+
+const RecommendationRow: React.FC<RecommendationRowProps> = ({ title, subtitle, products }) => {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  if (!products || products.length === 0) return null;
+
+  const scroll = (direction: 'left' | 'right') => {
+    if (scrollRef.current) {
+      const scrollAmount = direction === 'left' ? -340 : 340;
+      scrollRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    }
+  };
+
+  return (
+    <div className="py-8 border-t border-stone-200">
+      <div className="flex items-end justify-between mb-6">
+        <div>
+          <span className="text-[11px] font-bold uppercase tracking-widest text-[#832729] flex items-center gap-1.5 mb-1">
+            <Sparkles className="w-3.5 h-3.5 text-[#D4AF37]" /> Curated For You
+          </span>
+          <h2 className="font-serif text-2xl font-bold text-stone-900">{title}</h2>
+          <p className="text-xs text-stone-500 mt-0.5">{subtitle}</p>
+        </div>
+
+        {/* Carousel Prev/Next Buttons */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => scroll('left')}
+            className="p-2 rounded-full border border-stone-300 hover:border-stone-700 bg-white hover:bg-stone-50 transition-colors shadow-xs"
+            aria-label="Scroll left"
+          >
+            <ChevronLeft className="w-4 h-4 text-stone-700" />
+          </button>
+          <button
+            onClick={() => scroll('right')}
+            className="p-2 rounded-full border border-stone-300 hover:border-stone-700 bg-white hover:bg-stone-50 transition-colors shadow-xs"
+            aria-label="Scroll right"
+          >
+            <ChevronRight className="w-4 h-4 text-stone-700" />
+          </button>
+        </div>
+      </div>
+
+      {/* Horizontal Scrollable Track */}
+      <div
+        ref={scrollRef}
+        className="flex gap-4 sm:gap-6 overflow-x-auto pb-4 scrollbar-none snap-x snap-mandatory"
+        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+      >
+        {products.map((item) => (
+          <div key={item._id} className="w-[240px] sm:w-[280px] shrink-0 snap-start">
+            <ProductCard product={item} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
 
 export const ProductDetailPage: React.FC = () => {
   const { idOrSlug } = useParams<{ idOrSlug: string }>();
   const { addToCart } = useCart();
-  const { wishlistIds, toggleWishlist, isAuthenticated } = useAuth();
+  const { wishlistIds, toggleWishlist } = useAuth();
   const { settings } = useStoreSettings();
 
   const [product, setProduct] = useState<Product | null>(null);
+  const [recommendations, setRecommendations] = useState<{
+    similarProducts: Product[];
+    youMayAlsoLike: Product[];
+    moreFromCategory: Product[];
+  }>({
+    similarProducts: [],
+    youMayAlsoLike: [],
+    moreFromCategory: []
+  });
+
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [selectedSize, setSelectedSize] = useState<string>('');
   const [selectedColor, setSelectedColor] = useState<string>('');
@@ -22,6 +110,8 @@ export const ProductDetailPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [actionError, setActionError] = useState('');
   const [addedSuccess, setAddedSuccess] = useState(false);
+  const [isZoomed, setIsZoomed] = useState(false);
+  const [zoomPos, setZoomPos] = useState({ x: 50, y: 50 });
 
   useEffect(() => {
     const fetchProduct = async () => {
@@ -31,14 +121,29 @@ export const ProductDetailPage: React.FC = () => {
         if (res.data.success && res.data.product) {
           const prod: Product = res.data.product;
           setProduct(prod);
+          setSelectedImageIndex(0);
 
-          // Select first available variant combination by default
+          // Select first available in-stock variant combination by default
           const activeVariants = prod.variants?.filter((v) => v.isActive) || [];
           const firstInStock = activeVariants.find((v) => v.stockQuantity > 0) || activeVariants[0];
 
           if (firstInStock) {
             setSelectedSize(firstInStock.size);
             setSelectedColor(firstInStock.color);
+          }
+
+          // Fetch Flipkart-style dynamic recommendations
+          try {
+            const recRes = await api.get(`/products/${prod._id}/recommendations?limit=8`);
+            if (recRes.data.success && recRes.data.sections) {
+              setRecommendations({
+                similarProducts: recRes.data.sections.similarProducts || [],
+                youMayAlsoLike: recRes.data.sections.youMayAlsoLike || [],
+                moreFromCategory: recRes.data.sections.moreFromCategory || []
+              });
+            }
+          } catch (recErr) {
+            console.warn('[Recommendations] Could not load recommendations:', recErr);
           }
         }
       } catch (err) {
@@ -71,7 +176,10 @@ export const ProductDetailPage: React.FC = () => {
     return (
       <div className="max-w-7xl mx-auto px-4 py-20 text-center">
         <h2 className="font-serif text-2xl font-bold text-stone-800">Garment not found</h2>
-        <Link to="/shop" className="mt-4 inline-block px-6 py-2 bg-[#832729] text-white rounded-lg text-xs font-bold uppercase">
+        <Link
+          to="/shop"
+          className="mt-4 inline-block px-6 py-2.5 bg-[#832729] text-white rounded-lg text-xs font-bold uppercase tracking-wider"
+        >
           Back to Shop
         </Link>
       </div>
@@ -126,15 +234,39 @@ export const ProductDetailPage: React.FC = () => {
     }
   };
 
-  // WhatsApp pre-filled product inquiry
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const { left, top, width, height } = e.currentTarget.getBoundingClientRect();
+    const x = ((e.clientX - left) / width) * 100;
+    const y = ((e.clientY - top) / height) * 100;
+    setZoomPos({ x, y });
+  };
+
   const whatsappInquiryUrl = `https://wa.me/91${settings.whatsappNumber}?text=${encodeURIComponent(
     `Hello Aura Fashion! I am interested in "${product.name}" (SKU: ${selectedVariant?.sku || 'N/A'}, Size: ${selectedSize}, Color: ${selectedColor}). Could you share more details?`
   )}`;
 
+  // Safe image array with normalized URLs
+  const productImages =
+    product.images && product.images.length > 0
+      ? product.images.map((img) => ({
+          ...img,
+          resolvedUrl: getImageUrl(img.url)
+        }))
+      : [
+          {
+            url: FALLBACK_PRODUCT_IMAGE,
+            resolvedUrl: FALLBACK_PRODUCT_IMAGE,
+            isPrimary: true,
+            altText: product.name
+          }
+        ];
+
+  const focusedImage = productImages[selectedImageIndex] || productImages[0];
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
       {/* Breadcrumb */}
-      <nav className="text-xs text-stone-500 mb-8 flex items-center gap-2">
+      <nav className="text-xs text-stone-500 mb-8 flex items-center gap-2 flex-wrap">
         <Link to="/" className="hover:text-stone-800">Home</Link>
         <span>/</span>
         <Link to="/shop" className="hover:text-stone-800">Shop</Link>
@@ -151,37 +283,61 @@ export const ProductDetailPage: React.FC = () => {
       </nav>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16">
-        {/* Left: Image Gallery */}
+        {/* Left: Product Image Gallery */}
         <div className="flex flex-col-reverse sm:flex-row gap-4">
           {/* Thumbnail Strip */}
-          <div className="flex sm:flex-col gap-3 overflow-x-auto sm:overflow-y-auto max-h-[600px] shrink-0">
-            {product.images.map((img, idx) => (
+          <div className="flex sm:flex-col gap-3 overflow-x-auto sm:overflow-y-auto max-h-[600px] shrink-0 pb-2 sm:pb-0">
+            {productImages.map((img, idx) => (
               <button
                 key={idx}
+                type="button"
                 onClick={() => setSelectedImageIndex(idx)}
-                className={`w-16 h-20 sm:w-20 sm:h-24 rounded-lg overflow-hidden border-2 transition-all shrink-0 ${
+                className={`w-16 h-20 sm:w-20 sm:h-24 rounded-lg overflow-hidden border-2 transition-all shrink-0 bg-stone-100 ${
                   selectedImageIndex === idx
                     ? 'border-[#832729] ring-2 ring-[#832729]/20'
                     : 'border-stone-200 hover:border-stone-400'
                 }`}
               >
-                <img src={img.url} alt={img.altText || product.name} className="w-full h-full object-cover" />
+                <img
+                  src={img.resolvedUrl}
+                  alt={img.altText || `${product.name} angle ${idx + 1}`}
+                  onError={handleImageError}
+                  className="w-full h-full object-cover object-top"
+                />
               </button>
             ))}
           </div>
 
-          {/* Main Focused Image */}
-          <div className="flex-1 aspect-[3/4] bg-stone-100 rounded-2xl overflow-hidden relative shadow-lg">
+          {/* Main Focused Image with Optional Zoom */}
+          <div
+            className="flex-1 aspect-[3/4] bg-stone-100 rounded-2xl overflow-hidden relative shadow-lg cursor-crosshair"
+            onMouseEnter={() => setIsZoomed(true)}
+            onMouseLeave={() => setIsZoomed(false)}
+            onMouseMove={handleMouseMove}
+          >
             <img
-              src={product.images[selectedImageIndex]?.url || product.images[0]?.url}
+              src={focusedImage.resolvedUrl}
               alt={product.name}
-              className="w-full h-full object-cover object-top"
+              onError={handleImageError}
+              className={`w-full h-full object-cover object-top transition-transform duration-200 ${
+                isZoomed ? 'scale-150' : 'scale-100'
+              }`}
+              style={
+                isZoomed
+                  ? {
+                      transformOrigin: `${zoomPos.x}% ${zoomPos.y}%`
+                    }
+                  : undefined
+              }
             />
             {hasDiscount && (
               <span className="absolute top-4 left-4 bg-[#832729] text-white text-xs font-bold px-3 py-1 rounded shadow-md tracking-wider">
                 {discountPercent}% OFF
               </span>
             )}
+            <span className="absolute bottom-3 right-3 text-[10px] bg-black/60 text-white px-2 py-0.5 rounded-full backdrop-blur-xs hidden sm:block">
+              Hover to Zoom
+            </span>
           </div>
         </div>
 
@@ -196,7 +352,9 @@ export const ProductDetailPage: React.FC = () => {
               {product.name}
             </h1>
             {product.fabric && (
-              <p className="text-xs text-stone-500 mt-1">Fabric: <span className="font-semibold text-stone-700">{product.fabric}</span></p>
+              <p className="text-xs text-stone-500 mt-1">
+                Fabric: <span className="font-semibold text-stone-700">{product.fabric}</span>
+              </p>
             )}
           </div>
 
@@ -216,77 +374,83 @@ export const ProductDetailPage: React.FC = () => {
           </div>
 
           {/* Color Selector */}
-          <div>
-            <div className="flex justify-between items-center mb-2">
-              <label className="text-xs font-bold uppercase tracking-wider text-stone-900">
-                Color: <span className="font-semibold text-stone-700 normal-case">{selectedColor}</span>
-              </label>
+          {availableColors.length > 0 && (
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <label className="text-xs font-bold uppercase tracking-wider text-stone-900">
+                  Color: <span className="font-semibold text-stone-700 normal-case">{selectedColor}</span>
+                </label>
+              </div>
+              <div className="flex flex-wrap gap-2.5">
+                {availableColors.map((col) => {
+                  const isSelected = selectedColor === col.name;
+                  return (
+                    <button
+                      key={col.name}
+                      type="button"
+                      onClick={() => {
+                        setSelectedColor(col.name);
+                        setActionError('');
+                      }}
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
+                        isSelected
+                          ? 'border-[#832729] bg-[#832729]/5 text-[#832729] ring-2 ring-[#832729]/20'
+                          : 'border-stone-300 text-stone-700 hover:border-stone-400'
+                      }`}
+                    >
+                      <span
+                        style={{ backgroundColor: col.code }}
+                        className="w-3.5 h-3.5 rounded-full border border-stone-300"
+                      />
+                      <span>{col.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-            <div className="flex flex-wrap gap-2.5">
-              {availableColors.map((col) => {
-                const isSelected = selectedColor === col.name;
-                return (
-                  <button
-                    key={col.name}
-                    onClick={() => {
-                      setSelectedColor(col.name);
-                      setActionError('');
-                    }}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
-                      isSelected
-                        ? 'border-[#832729] bg-[#832729]/5 text-[#832729] ring-2 ring-[#832729]/20'
-                        : 'border-stone-300 text-stone-700 hover:border-stone-400'
-                    }`}
-                  >
-                    <span
-                      style={{ backgroundColor: col.code }}
-                      className="w-3.5 h-3.5 rounded-full border border-stone-300"
-                    />
-                    <span>{col.name}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          )}
 
           {/* Size Selector with real-time stock indicator */}
-          <div>
-            <div className="flex justify-between items-center mb-2">
-              <label className="text-xs font-bold uppercase tracking-wider text-stone-900">
-                Select Size: <span className="font-semibold text-stone-700">{selectedSize}</span>
-              </label>
-              <span className="text-xs text-stone-400">Regular Indian Standard Fit</span>
-            </div>
-            <div className="flex flex-wrap gap-2.5">
-              {availableSizes.map((sz) => {
-                const isSelected = selectedSize === sz;
-                const matchVar = variants.find((v) => v.size === sz && v.color === selectedColor);
-                const isOutOfStock = matchVar && matchVar.stockQuantity <= 0;
+          {availableSizes.length > 0 && (
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <label className="text-xs font-bold uppercase tracking-wider text-stone-900">
+                  Select Size: <span className="font-semibold text-stone-700">{selectedSize}</span>
+                </label>
+                <span className="text-xs text-stone-400">Regular Indian Standard Fit</span>
+              </div>
+              <div className="flex flex-wrap gap-2.5">
+                {availableSizes.map((sz) => {
+                  const isSelected = selectedSize === sz;
+                  const matchVar = variants.find((v) => v.size === sz && v.color === selectedColor);
+                  const isOutOfStock = matchVar && matchVar.stockQuantity <= 0;
 
-                return (
-                  <button
-                    key={sz}
-                    disabled={isOutOfStock}
-                    onClick={() => {
-                      setSelectedSize(sz);
-                      setActionError('');
-                    }}
-                    className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all border ${
-                      isSelected
-                        ? 'bg-[#832729] text-white border-[#832729] shadow-md'
-                        : isOutOfStock
-                        ? 'bg-stone-100 text-stone-300 border-stone-200 cursor-not-allowed line-through'
-                        : 'bg-white text-stone-700 border-stone-300 hover:border-stone-400'
-                    }`}
-                  >
-                    {sz}
-                  </button>
-                );
-              })}
+                  return (
+                    <button
+                      key={sz}
+                      type="button"
+                      disabled={isOutOfStock}
+                      onClick={() => {
+                        setSelectedSize(sz);
+                        setActionError('');
+                      }}
+                      className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all border ${
+                        isSelected
+                          ? 'bg-[#832729] text-white border-[#832729] shadow-md'
+                          : isOutOfStock
+                          ? 'bg-stone-100 text-stone-300 border-stone-200 cursor-not-allowed line-through'
+                          : 'bg-white text-stone-700 border-stone-300 hover:border-stone-400'
+                      }`}
+                    >
+                      {sz}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          )}
 
-          {/* Inventory Stock Warning / Status */}
+          {/* Inventory Stock Status */}
           <div className="text-xs">
             {isCurrentVariantInStock ? (
               currentStock <= 5 ? (
@@ -318,6 +482,7 @@ export const ProductDetailPage: React.FC = () => {
           <div className="flex items-center gap-4 pt-2">
             <div className="flex items-center border border-stone-300 rounded-lg bg-white">
               <button
+                type="button"
                 onClick={() => setQuantity(Math.max(1, quantity - 1))}
                 className="px-3.5 py-3 text-stone-600 hover:text-stone-900"
               >
@@ -325,6 +490,7 @@ export const ProductDetailPage: React.FC = () => {
               </button>
               <span className="px-3 text-sm font-bold text-stone-800">{quantity}</span>
               <button
+                type="button"
                 onClick={() => setQuantity(Math.min(currentStock || 1, quantity + 1))}
                 className="px-3.5 py-3 text-stone-600 hover:text-stone-900"
               >
@@ -333,11 +499,12 @@ export const ProductDetailPage: React.FC = () => {
             </div>
 
             <button
+              type="button"
               onClick={handleAddToCart}
               disabled={!isCurrentVariantInStock}
               className={`flex-1 py-3.5 rounded-lg text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-all shadow-xl ${
                 isCurrentVariantInStock
-                  ? 'bg-[#832729] text-white hover:bg-[#6E1F21] shadow-[#832729]/25'
+                  ? 'bg-[#832729] text-white hover:bg-[#6E1F21] shadow-[#832729]/25 cursor-pointer'
                   : 'bg-stone-300 text-stone-500 cursor-not-allowed shadow-none'
               }`}
             >
@@ -346,11 +513,11 @@ export const ProductDetailPage: React.FC = () => {
             </button>
 
             <button
+              type="button"
               onClick={async () => {
-                if (!isAuthenticated) return alert('Please sign in to save items to your wishlist');
                 await toggleWishlist(product._id);
               }}
-              className="p-3.5 border border-stone-300 rounded-lg hover:border-stone-400 bg-white"
+              className="p-3.5 border border-stone-300 rounded-lg hover:border-stone-400 bg-white cursor-pointer"
               title="Add to Wishlist"
             >
               <Heart
@@ -391,7 +558,7 @@ export const ProductDetailPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Description & Specifications Accordion */}
+          {/* Description & Specifications */}
           <div className="pt-6 border-t border-stone-200 space-y-4">
             <div>
               <h3 className="font-serif text-base font-bold text-stone-900 mb-2">Description</h3>
@@ -417,19 +584,33 @@ export const ProductDetailPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Related Outfits */}
-      {product.relatedProducts && product.relatedProducts.length > 0 && (
-        <section className="mt-20 pt-12 border-t border-stone-200">
-          <h2 className="font-serif text-2xl font-bold text-stone-900 mb-8 text-center sm:text-left">
-            Complete the Look
-          </h2>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-            {product.relatedProducts.map((rel) => (
-              <ProductCard key={rel._id} product={rel} />
-            ))}
-          </div>
-        </section>
-      )}
+      {/* MODULE 5: FLIPKART-STYLE PRODUCT RECOMMENDATION SECTIONS */}
+      <div className="mt-20 space-y-4">
+        {/* Section 1: Similar Products */}
+        <RecommendationRow
+          title="Similar Products"
+          subtitle="Pieces that share fabric, tailoring nuances, and design aesthetic"
+          products={recommendations.similarProducts}
+        />
+
+        {/* Section 2: You May Also Like */}
+        <RecommendationRow
+          title="You May Also Like"
+          subtitle="Curated picks tailored to modern festive and casual wardrobes"
+          products={recommendations.youMayAlsoLike}
+        />
+
+        {/* Section 3: More From This Category */}
+        <RecommendationRow
+          title={
+            product.category
+              ? `More From ${product.category.name}`
+              : 'More From This Category'
+          }
+          subtitle="Explore our full collection handcrafted in our Bengaluru studio"
+          products={recommendations.moreFromCategory}
+        />
+      </div>
     </div>
   );
 };

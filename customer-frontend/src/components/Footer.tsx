@@ -47,9 +47,21 @@ export const Footer: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10">
           {/* Shop Identity */}
           <div className="space-y-4">
-            <h3 className="font-serif text-2xl font-bold tracking-widest uppercase text-white">
-              {settings.shopName}
-            </h3>
+            <Link to="/" className="inline-block group">
+              <img
+                src="/logo-white.png"
+                alt={settings.shopName || 'Aura Fashion'}
+                className="h-12 sm:h-14 w-auto object-contain transition-transform duration-300 group-hover:scale-105"
+                onError={(e) => {
+                  (e.currentTarget as HTMLElement).style.display = 'none';
+                  const fallback = document.getElementById('footer-brand-fallback');
+                  if (fallback) fallback.style.display = 'block';
+                }}
+              />
+              <h3 id="footer-brand-fallback" className="hidden font-serif text-2xl font-bold tracking-widest uppercase text-white">
+                {settings.shopName}
+              </h3>
+            </Link>
             <p className="text-sm text-stone-400 leading-relaxed">
               {settings.tagline}. Designed for those who value refined elegance, bespoke tailoring and timeless silhouettes.
             </p>
@@ -95,6 +107,11 @@ export const Footer: React.FC = () => {
               Customer Care & Policies
             </h4>
             <ul className="space-y-2.5 text-sm">
+              <li>
+                <Link to="/track-order" className="hover:text-white transition-colors text-[#D4AF37] font-semibold">
+                  Track Your Order
+                </Link>
+              </li>
               <li>
                 <Link to="/policies#returns" className="hover:text-white transition-colors">
                   Return & Exchange Policy

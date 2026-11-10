@@ -2,6 +2,7 @@ import express from 'express';
 import {
   getProducts,
   getProductByIdOrSlug,
+  getProductRecommendations,
   getFilterMetadata,
   createProduct,
   updateProduct,
@@ -14,6 +15,7 @@ const router = express.Router();
 
 router.get('/', getProducts);
 router.get('/filters', getFilterMetadata);
+router.get('/:idOrSlug/recommendations', getProductRecommendations);
 router.get('/:idOrSlug', getProductByIdOrSlug);
 
 // Admin product management (supports multiple image upload)

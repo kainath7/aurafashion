@@ -89,12 +89,14 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
         <div>
           {/* Header */}
           <div className="h-20 px-6 flex items-center justify-between border-b border-slate-800">
-            <div>
-              <span className="font-serif text-lg font-bold tracking-widest text-white uppercase block">
-                Aura Fashion
-              </span>
-              <span className="text-[10px] uppercase tracking-widest text-[#D4AF37] font-semibold">
-                Executive Portal
+            <div className="flex items-center gap-3">
+              <img
+                src="/logo-white.png"
+                alt="Aura Fashion"
+                className="h-10 w-auto object-contain"
+              />
+              <span className="text-[10px] uppercase tracking-widest text-[#D4AF37] font-semibold border-l border-slate-800 pl-3">
+                Portal
               </span>
             </div>
             <button

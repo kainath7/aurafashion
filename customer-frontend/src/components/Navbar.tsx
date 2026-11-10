@@ -78,13 +78,25 @@ export const Navbar: React.FC = () => {
 
           {/* Logo & Brand Identity */}
           <div className="flex items-center">
-            <Link to="/" className="flex flex-col">
-              <span className="font-serif text-2xl sm:text-3xl tracking-widest uppercase font-bold text-[#832729]">
-                {settings.shopName}
-              </span>
-              <span className="text-[10px] tracking-[0.25em] uppercase text-stone-500 font-medium">
-                {settings.shopLocation.split(',')[0]} &bull; Haute Couture
-              </span>
+            <Link to="/" className="flex items-center gap-2 group py-1">
+              <img
+                src="/logo-dark.png"
+                alt={settings.shopName || 'Aura Fashion'}
+                className="h-10 sm:h-12 w-auto object-contain transition-transform duration-300 group-hover:scale-105"
+                onError={(e) => {
+                  (e.currentTarget as HTMLElement).style.display = 'none';
+                  const fallback = document.getElementById('navbar-brand-fallback');
+                  if (fallback) fallback.style.display = 'flex';
+                }}
+              />
+              <div id="navbar-brand-fallback" className="hidden flex-col">
+                <span className="font-serif text-2xl sm:text-3xl tracking-widest uppercase font-bold text-[#832729]">
+                  {settings.shopName}
+                </span>
+                <span className="text-[10px] tracking-[0.25em] uppercase text-stone-500 font-medium">
+                  {settings.shopLocation.split(',')[0]} &bull; Haute Couture
+                </span>
+              </div>
             </Link>
           </div>
 
@@ -186,62 +198,15 @@ export const Navbar: React.FC = () => {
               )}
             </button>
 
-            {/* Customer Account / Auth Dropdown */}
-            <div className="relative">
-              {isAuthenticated ? (
-                <div className="relative">
-                  <button
-                    onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
-                    className="flex items-center gap-1.5 p-1.5 rounded-full hover:bg-stone-100 transition-colors"
-                  >
-                    <div className="w-8 h-8 rounded-full bg-[#832729]/10 text-[#832729] font-bold text-xs flex items-center justify-center">
-                      {user?.name.charAt(0).toUpperCase()}
-                    </div>
-                    <ChevronDown className="w-3.5 h-3.5 text-stone-500" />
-                  </button>
-
-                  {profileDropdownOpen && (
-                    <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border border-stone-100 py-2 z-50">
-                      <div className="px-4 py-2 border-b border-stone-100">
-                        <p className="text-xs text-stone-400">Signed in as</p>
-                        <p className="text-sm font-semibold text-stone-800 truncate">{user?.name}</p>
-                      </div>
-                      <Link
-                        to="/profile"
-                        onClick={() => setProfileDropdownOpen(false)}
-                        className="flex items-center gap-2 px-4 py-2 text-sm text-stone-600 hover:bg-stone-50 hover:text-[#832729]"
-                      >
-                        <UserIcon className="w-4 h-4" /> Profile & Addresses
-                      </Link>
-                      <Link
-                        to="/my-orders"
-                        onClick={() => setProfileDropdownOpen(false)}
-                        className="flex items-center gap-2 px-4 py-2 text-sm text-stone-600 hover:bg-stone-50 hover:text-[#832729]"
-                      >
-                        <Package className="w-4 h-4" /> My Orders
-                      </Link>
-                      <button
-                        onClick={() => {
-                          logout();
-                          setProfileDropdownOpen(false);
-                        }}
-                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 text-left"
-                      >
-                        <LogOut className="w-4 h-4" /> Logout
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <Link
-                  to="/login"
-                  className="flex items-center gap-1 text-sm font-semibold text-[#832729] hover:underline px-2 py-1"
-                >
-                  <UserIcon className="w-4 h-4" />
-                  <span className="hidden sm:inline">Sign In</span>
-                </Link>
-              )}
-            </div>
+            {/* Track Order Option (No Login Required) */}
+            <Link
+              to="/track-order"
+              className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-stone-700 hover:text-[#832729] px-2.5 py-1.5 rounded-lg border border-stone-200 hover:border-[#832729]/30 hover:bg-[#832729]/5 transition-all"
+              title="Track Order Status"
+            >
+              <Package className="w-4 h-4 text-[#832729]" />
+              <span className="hidden sm:inline">Track Order</span>
+            </Link>
           </div>
         </div>
       </div>
@@ -262,6 +227,13 @@ export const Navbar: React.FC = () => {
             className="block py-2 text-base font-medium text-stone-800 border-b border-stone-100"
           >
             All Collections
+          </Link>
+          <Link
+            to="/track-order"
+            onClick={() => setMobileMenuOpen(false)}
+            className="flex items-center gap-2 py-2 text-base font-semibold text-[#832729] border-b border-stone-100"
+          >
+            <Package className="w-5 h-5 text-[#832729]" /> Track Order
           </Link>
           {categories.map((cat) => (
             <div key={cat._id} className="py-1">

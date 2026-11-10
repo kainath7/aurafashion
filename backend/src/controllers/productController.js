@@ -2,7 +2,7 @@ import Product from '../models/Product.js';
 import ProductVariant from '../models/ProductVariant.js';
 import Category from '../models/Category.js';
 import InventoryTransaction from '../models/InventoryTransaction.js';
-import { uploadToCloudinary } from '../config/cloudinary.js';
+import { uploadToCloudinary, deleteFromCloudinary } from '../config/cloudinary.js';
 import { broadcastEvent } from '../sockets/socketHandler.js';
 
 const slugify = (text) => {
@@ -13,6 +13,31 @@ const slugify = (text) => {
     .replace(/\s+/g, '-')
     .replace(/[^\w-]+/g, '')
     .replace(/--+/g, '-');
+};
+
+export const normalizeImageUrl = (url, req = null) => {
+  if (!url || typeof url !== 'string' || !url.trim()) {
+    return 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=800&q=80';
+  }
+  const trimmed = url.trim();
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('data:')) {
+    return trimmed;
+  }
+  const cleanPath = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+  const baseUrl = (process.env.BACKEND_URL || (req ? `${req.protocol}://${req.get('host')}` : 'http://localhost:5000')).replace(/\/+$/, '');
+  return `${baseUrl}${cleanPath}`;
+};
+
+const formatProductForResponse = (productDoc, req = null) => {
+  if (!productDoc) return null;
+  const p = productDoc.toObject ? productDoc.toObject() : { ...productDoc };
+  if (Array.isArray(p.images)) {
+    p.images = p.images.map((img) => ({
+      ...img,
+      url: normalizeImageUrl(img.url, req)
+    }));
+  }
+  return p;
 };
 
 // @desc    List products with multi-filter, search, and pagination
@@ -78,7 +103,6 @@ export const getProducts = async (req, res, next) => {
         const foundCategories = await Category.find({ slug: { $in: slugs } }).select('_id');
         for (const c of foundCategories) {
           objectIds.push(c._id.toString());
-          // Also fetch child subcategories so parent category filter includes its children
           const childCategories = await Category.find({ parentCategory: c._id }).select('_id');
           childCategories.forEach((child) => objectIds.push(child._id.toString()));
         }
@@ -115,7 +139,7 @@ export const getProducts = async (req, res, next) => {
       }
     }
 
-    // Brand filter (multi-select supported)
+    // Brand filter
     if (brand) {
       const brands = (Array.isArray(brand) ? brand : brand.split(','))
         .map((b) => b.trim())
@@ -125,7 +149,7 @@ export const getProducts = async (req, res, next) => {
       }
     }
 
-    // Fabric filter (multi-select supported)
+    // Fabric filter
     if (fabric) {
       const fabrics = (Array.isArray(fabric) ? fabric : fabric.split(','))
         .map((f) => f.trim())
@@ -135,45 +159,41 @@ export const getProducts = async (req, res, next) => {
       }
     }
 
-    // Rating filter (e.g. 4 for 4+ stars)
-    if (rating) {
-      query.ratingsAverage = { $gte: Number(rating) };
+    // Price range
+    if (minPrice !== undefined || maxPrice !== undefined) {
+      query.basePrice = {};
+      if (minPrice !== undefined && minPrice !== '') query.basePrice.$gte = Number(minPrice);
+      if (maxPrice !== undefined && maxPrice !== '') query.basePrice.$lte = Number(maxPrice);
     }
 
-    // Discount percentage filter
-    if (discount) {
-      const minDisc = Number(discount);
-      if (!isNaN(minDisc) && minDisc > 0) {
-        query.discountPrice = { $ne: null, $gt: 0 };
-        query.$expr = {
-          $gte: [
-            {
-              $multiply: [
-                { $divide: [{ $subtract: ['$basePrice', '$discountPrice'] }, '$basePrice'] },
-                100
-              ]
-            },
-            minDisc
-          ]
-        };
-      }
-    }
-
-    // Curated section flags
+    // Curated tags & collections
     if (featured === 'true' || featured === true) query.isFeatured = true;
     if (newArrivals === 'true' || newArrivals === true) query.isNewArrival = true;
     if (trending === 'true' || trending === true) query.isTrending = true;
     if (bestSellers === 'true' || bestSellers === true) query.isBestSeller = true;
 
-    // Price range filter
-    if (minPrice || maxPrice) {
-      query.basePrice = {};
-      if (minPrice) query.basePrice.$gte = Number(minPrice);
-      if (maxPrice) query.basePrice.$lte = Number(maxPrice);
+    // Rating filter
+    if (rating) {
+      query.ratingsAverage = { $gte: Number(rating) };
     }
 
-    // Dynamic specification filters (occasion, fit, pattern, collar, gender, etc.)
-    const specConditions = [];
+    // Discount filter
+    if (discount) {
+      const minDiscountPercent = Number(discount);
+      query.$expr = {
+        $gte: [
+          {
+            $multiply: [
+              { $divide: [{ $subtract: ['$basePrice', { $ifNull: ['$discountPrice', '$basePrice'] }] }, '$basePrice'] },
+              100
+            ]
+          },
+          minDiscountPercent
+        ]
+      };
+    }
+
+    // Dynamic specification filters
     const reservedParams = new Set([
       'keyword',
       'category',
@@ -197,6 +217,7 @@ export const getProducts = async (req, res, next) => {
       'includeinactive'
     ]);
 
+    const specConditions = [];
     for (const [key, val] of Object.entries(dynamicParams)) {
       const cleanKey = key.startsWith('spec_') ? key.replace('spec_', '') : key;
       if (!reservedParams.has(cleanKey.toLowerCase()) && val) {
@@ -285,13 +306,15 @@ export const getProducts = async (req, res, next) => {
     const skip = (pageNum - 1) * limitNum;
 
     const totalProducts = await Product.countDocuments(query);
-    const products = await Product.find(query)
+    const rawProducts = await Product.find(query)
       .populate('category', 'name slug')
       .populate('subcategory', 'name slug')
       .populate('variants')
       .sort(sortOptions)
       .skip(skip)
       .limit(limitNum);
+
+    const products = rawProducts.map((p) => formatProductForResponse(p, req));
 
     res.json({
       success: true,
@@ -314,7 +337,6 @@ export const getFilterMetadata = async (req, res, next) => {
     const { category, keyword } = req.query;
     const matchQuery = { isActive: true };
 
-    // If category is provided, scope dynamic filters to that category
     if (category) {
       if (category.match(/^[0-9a-fA-F]{24}$/)) {
         matchQuery.category = category;
@@ -335,7 +357,6 @@ export const getFilterMetadata = async (req, res, next) => {
       ];
     }
 
-    // 1. Categories with product counts
     const allCategories = await Category.find({ isActive: true }).sort({ displayOrder: 1, name: 1 });
     const productCategoryCounts = await Product.aggregate([
       { $match: { isActive: true } },
@@ -350,120 +371,57 @@ export const getFilterMetadata = async (req, res, next) => {
     const categoriesTree = rootCats.map((root) => {
       const children = subCats
         .filter((sub) => sub.parentCategory.toString() === root._id.toString())
-        .map((child) => ({
-          _id: child._id,
-          name: child.name,
-          slug: child.slug,
-          productCount: catCountMap.get(child._id.toString()) || 0
+        .map((sub) => ({
+          _id: sub._id,
+          name: sub.name,
+          slug: sub.slug,
+          count: catCountMap.get(sub._id.toString()) || 0
         }));
 
       return {
         _id: root._id,
         name: root.name,
         slug: root.slug,
-        productCount: catCountMap.get(root._id.toString()) || 0,
+        count: (catCountMap.get(root._id.toString()) || 0) + children.reduce((s, c) => s + c.count, 0),
         subcategories: children
       };
     });
 
-    // 2. Distinct Brands
-    const brands = await Product.distinct('brand', matchQuery);
-    const cleanBrands = brands.filter(Boolean).sort((a, b) => a.localeCompare(b));
-
-    // 3. Distinct Fabrics
-    const fabrics = await Product.distinct('fabric', matchQuery);
-    const cleanFabrics = fabrics.filter(Boolean).sort((a, b) => a.localeCompare(b));
-
-    // 4. Price range (min and max)
-    const priceStats = await Product.aggregate([
-      { $match: matchQuery },
-      {
-        $group: {
-          _id: null,
-          minPrice: { $min: '$basePrice' },
-          maxPrice: { $max: '$basePrice' }
-        }
-      }
-    ]);
-    const minPrice = priceStats.length > 0 ? priceStats[0].minPrice : 0;
-    const maxPrice = priceStats.length > 0 ? priceStats[0].maxPrice : 10000;
-
-    // 5. Variant attributes: Sizes and Colors
-    const matchingProducts = await Product.find(matchQuery).select('_id');
+    const matchingProducts = await Product.find(matchQuery).select('_id basePrice brand fabric specifications');
     const productIds = matchingProducts.map((p) => p._id);
 
-    const variantAgg = await ProductVariant.aggregate([
-      {
-        $match: {
-          product: { $in: productIds },
-          isActive: true
-        }
-      },
-      {
-        $group: {
-          _id: null,
-          sizes: { $addToSet: '$size' },
-          colorObjects: {
-            $addToSet: {
-              color: '$color',
-              colorCode: '$colorCode'
-            }
-          }
-        }
+    const brands = [...new Set(matchingProducts.map((p) => p.brand).filter(Boolean))].sort();
+    const fabrics = [...new Set(matchingProducts.map((p) => p.fabric).filter(Boolean))].sort();
+
+    const variants = await ProductVariant.find({ product: { $in: productIds }, isActive: true });
+    const sizes = [...new Set(variants.map((v) => v.size).filter(Boolean))];
+
+    const colorMap = new Map();
+    variants.forEach((v) => {
+      if (v.color && !colorMap.has(v.color)) {
+        colorMap.set(v.color, { color: v.color, colorCode: v.colorCode || '#000000' });
       }
-    ]);
+    });
+    const colors = Array.from(colorMap.values());
 
-    // Size ordering priority
-    const standardSizeOrder = ['Free Size', 'XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL', '4XL', '5XL'];
-    let sizes = [];
-    let colors = [];
-
-    if (variantAgg.length > 0) {
-      const rawSizes = variantAgg[0].sizes || [];
-      sizes = rawSizes.sort((a, b) => {
-        const idxA = standardSizeOrder.indexOf(a.toUpperCase());
-        const idxB = standardSizeOrder.indexOf(b.toUpperCase());
-        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-        if (idxA !== -1) return -1;
-        if (idxB !== -1) return 1;
-        return a.localeCompare(b);
-      });
-
-      // Deduplicate colors by color name
-      const rawColors = variantAgg[0].colorObjects || [];
-      const seenColor = new Set();
-      for (const c of rawColors) {
-        if (c.color && !seenColor.has(c.color.toLowerCase())) {
-          seenColor.add(c.color.toLowerCase());
-          colors.push({
-            color: c.color,
-            colorCode: c.colorCode || '#000000'
-          });
-        }
-      }
-      colors.sort((a, b) => a.color.localeCompare(b.color));
+    let minPrice = 0;
+    let maxPrice = 5000;
+    if (matchingProducts.length > 0) {
+      const prices = matchingProducts.map((p) => p.basePrice);
+      minPrice = Math.min(...prices);
+      maxPrice = Math.max(...prices);
     }
 
-    // 6. Dynamic Specifications (Occasion, Fit, Pattern, Collar, Gender, etc.)
     const specsAgg = await Product.aggregate([
       { $match: matchQuery },
       { $unwind: '$specifications' },
       {
         $group: {
-          _id: {
-            key: { $toLower: '$specifications.key' },
-            displayName: '$specifications.key',
-            value: '$specifications.value'
-          }
+          _id: '$specifications.key',
+          options: { $addToSet: '$specifications.value' }
         }
       },
-      {
-        $group: {
-          _id: '$_id.key',
-          key: { $first: '$_id.displayName' },
-          options: { $addToSet: '$_id.value' }
-        }
-      },
+      { $project: { key: '$_id', options: 1, _id: 0 } },
       { $sort: { key: 1 } }
     ]);
 
@@ -472,7 +430,6 @@ export const getFilterMetadata = async (req, res, next) => {
       options: s.options.sort((a, b) => a.localeCompare(b))
     }));
 
-    // 7. Ratings and Discount options
     const ratings = [
       { rating: 4, label: '4★ & above' },
       { rating: 3, label: '3★ & above' }
@@ -485,7 +442,6 @@ export const getFilterMetadata = async (req, res, next) => {
       { minDiscount: 50, label: '50% and above' }
     ];
 
-    // In-stock products count
     const inStockVariantProductIds = await ProductVariant.distinct('product', {
       product: { $in: productIds },
       isActive: true,
@@ -496,8 +452,8 @@ export const getFilterMetadata = async (req, res, next) => {
       success: true,
       filters: {
         categories: categoriesTree,
-        brands: cleanBrands,
-        fabrics: cleanFabrics,
+        brands,
+        fabrics,
         sizes,
         colors,
         priceRange: {
@@ -525,42 +481,209 @@ export const getProductByIdOrSlug = async (req, res, next) => {
     const isId = idOrSlug.match(/^[0-9a-fA-F]{24}$/);
 
     const query = isId ? { _id: idOrSlug } : { slug: idOrSlug };
-    const product = await Product.findOne(query)
+    const rawProduct = await Product.findOne(query)
       .populate('category', 'name slug')
       .populate('subcategory', 'name slug')
       .populate('variants')
       .populate('relatedProducts', 'name slug basePrice discountPrice images ratingsAverage');
 
-    if (!product) {
+    if (!rawProduct) {
       return res.status(404).json({
         success: false,
         message: 'Product not found'
       });
     }
 
-    // If related products weren't explicitly set, find related from the same category
-    let related = product.relatedProducts;
-    if (!related || related.length === 0) {
-      related = await Product.find({
-        category: product.category._id,
-        _id: { $ne: product._id },
-        isActive: true
-      })
-        .limit(4)
-        .select('name slug basePrice discountPrice images ratingsAverage');
-    }
+    const product = formatProductForResponse(rawProduct, req);
 
     res.json({
       success: true,
-      product: {
-        ...product.toObject(),
-        relatedProducts: related
+      product
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// =============================================================================
+// MODULE 5: SIMILAR PRODUCTS AND RECOMMENDATIONS ENGINE
+// =============================================================================
+
+// @desc    Get Flipkart-style categorized recommendations for a product
+// @route   GET /api/products/:idOrSlug/recommendations
+// @access  Public
+export const getProductRecommendations = async (req, res, next) => {
+  try {
+    const { idOrSlug } = req.params;
+    const isId = idOrSlug.match(/^[0-9a-fA-F]{24}$/);
+    const limit = Math.min(20, Math.max(4, parseInt(req.query.limit, 10) || 8));
+
+    const sourceProduct = await Product.findOne(isId ? { _id: idOrSlug } : { slug: idOrSlug })
+      .populate('category')
+      .populate('subcategory')
+      .populate('variants');
+
+    if (!sourceProduct) {
+      return res.status(404).json({
+        success: false,
+        message: 'Product not found'
+      });
+    }
+
+    const sourceCatId = sourceProduct.category?._id?.toString() || sourceProduct.category?.toString();
+    const sourceSubcatId = sourceProduct.subcategory?._id?.toString() || sourceProduct.subcategory?.toString();
+    const sourceFabric = (sourceProduct.fabric || '').trim().toLowerCase();
+    const sourceBrand = (sourceProduct.brand || '').trim().toLowerCase();
+    const sourcePrice = Number(sourceProduct.basePrice) || 2000;
+    const sourceTags = (sourceProduct.tags || []).map((t) => t.trim().toLowerCase());
+
+    // Map source product specifications for attribute-level category matching
+    const sourceSpecsMap = new Map();
+    if (Array.isArray(sourceProduct.specifications)) {
+      sourceProduct.specifications.forEach((s) => {
+        if (s.key && s.value) {
+          sourceSpecsMap.set(s.key.trim().toLowerCase(), s.value.trim().toLowerCase());
+        }
+      });
+    }
+
+    // Candidate products: active, not the source product
+    const candidateQuery = {
+      _id: { $ne: sourceProduct._id },
+      isActive: true
+    };
+
+    const candidates = await Product.find(candidateQuery)
+      .populate('category', 'name slug')
+      .populate('subcategory', 'name slug')
+      .populate('variants')
+      .limit(60);
+
+    // Compute relevance score for each candidate product
+    const scoredCandidates = candidates.map((cand) => {
+      let score = 0;
+      const candCatId = cand.category?._id?.toString() || cand.category?.toString();
+      const candSubcatId = cand.subcategory?._id?.toString() || cand.subcategory?.toString();
+      const candFabric = (cand.fabric || '').trim().toLowerCase();
+      const candBrand = (cand.brand || '').trim().toLowerCase();
+      const candPrice = Number(cand.basePrice) || 2000;
+      const candTags = (cand.tags || []).map((t) => t.trim().toLowerCase());
+
+      // 1. Same Subcategory (+35 pts)
+      if (sourceSubcatId && candSubcatId && sourceSubcatId === candSubcatId) {
+        score += 35;
+      }
+
+      // 2. Same Main Category (+15 pts)
+      if (sourceCatId && candCatId && sourceCatId === candCatId) {
+        score += 15;
+      }
+
+      // 3. Similar Fabric & Material (+15 pts)
+      if (sourceFabric && candFabric && (sourceFabric.includes(candFabric) || candFabric.includes(sourceFabric))) {
+        score += 15;
+      }
+
+      // 4. Category-Specific Specifications (+12 pts per matching attribute)
+      // Checks: Occasion, Fit, Pattern, Weave, Gender, Collar, Sleeve, Style
+      if (Array.isArray(cand.specifications)) {
+        cand.specifications.forEach((s) => {
+          if (s.key && s.value) {
+            const candKey = s.key.trim().toLowerCase();
+            const candVal = s.value.trim().toLowerCase();
+            const sourceVal = sourceSpecsMap.get(candKey);
+            if (sourceVal && (sourceVal === candVal || sourceVal.includes(candVal) || candVal.includes(sourceVal))) {
+              score += 12;
+            }
+          }
+        });
+      }
+
+      // 5. Common Tags (+5 pts per tag)
+      if (sourceTags.length > 0 && candTags.length > 0) {
+        const matchingTags = candTags.filter((t) => sourceTags.includes(t));
+        score += matchingTags.length * 5;
+      }
+
+      // 6. Brand Matching (+8 pts)
+      if (sourceBrand && candBrand && sourceBrand === candBrand) {
+        score += 8;
+      }
+
+      // 7. Price Proximity (+15 pts if within 25%, +8 pts if within 50%)
+      const priceDiff = Math.abs(sourcePrice - candPrice);
+      const priceRatio = priceDiff / (sourcePrice || 1);
+      if (priceRatio <= 0.25) {
+        score += 15;
+      } else if (priceRatio <= 0.5) {
+        score += 8;
+      }
+
+      // 8. Available Variant Stock (+20 pts)
+      const inStockUnits = cand.variants?.reduce((sum, v) => sum + (v.stockQuantity || 0), 0) || 0;
+      if (inStockUnits > 0) {
+        score += 20;
+      } else {
+        score -= 25; // deprioritize out of stock
+      }
+
+      // 9. Ratings / Bestseller bonus
+      if (cand.isBestSeller) score += 5;
+      if (cand.ratingsAverage >= 4.5) score += 5;
+
+      return {
+        product: formatProductForResponse(cand, req),
+        score,
+        inStockUnits,
+        isSameCategory: sourceCatId === candCatId,
+        isSameSubcat: Boolean(sourceSubcatId && sourceSubcatId === candSubcatId)
+      };
+    });
+
+    // Sort by descending score
+    scoredCandidates.sort((a, b) => b.score - a.score);
+
+    // 1. Similar Products: highest relevance matching subcategory and attributes
+    const similarProducts = scoredCandidates
+      .slice(0, limit)
+      .map((item) => item.product);
+
+    // 2. You May Also Like: items with close attributes or popular styles (offset from similar)
+    const usedIds = new Set(similarProducts.map((p) => p._id.toString()));
+    const youMayAlsoLike = scoredCandidates
+      .filter((item) => !usedIds.has(item.product._id.toString()))
+      .slice(0, limit)
+      .map((item) => item.product);
+
+    // 3. More From This Category: specifically items belonging to source category
+    const moreFromCategory = scoredCandidates
+      .filter((item) => item.isSameCategory && !usedIds.has(item.product._id.toString()))
+      .slice(0, limit)
+      .map((item) => item.product);
+
+    // Graceful fallback if fewer items exist
+    res.json({
+      success: true,
+      sourceProduct: {
+        _id: sourceProduct._id,
+        name: sourceProduct.name,
+        category: sourceProduct.category?.name,
+        subcategory: sourceProduct.subcategory?.name
+      },
+      sections: {
+        similarProducts,
+        youMayAlsoLike: youMayAlsoLike.length > 0 ? youMayAlsoLike : similarProducts.slice(0, 4),
+        moreFromCategory: moreFromCategory.length > 0 ? moreFromCategory : similarProducts
       }
     });
   } catch (error) {
     next(error);
   }
 };
+
+// =============================================================================
+// MODULE 4: PRODUCT CREATION, UPDATE & ADMIN IMAGE MANAGEMENT
+// =============================================================================
 
 // @desc    Create product with multiple images and variants
 // @route   POST /api/products
@@ -584,7 +707,8 @@ export const createProduct = async (req, res, next) => {
       isTrending,
       isBestSeller,
       isActive,
-      variants // JSON string or array
+      primaryImageIndex,
+      variants
     } = req.body;
 
     if (!name || !description || !category || !basePrice) {
@@ -600,6 +724,8 @@ export const createProduct = async (req, res, next) => {
       slug = `${slug}-${Date.now().toString().slice(-4)}`;
     }
 
+    const pIndex = parseInt(primaryImageIndex, 10) || 0;
+
     // Process images
     const images = [];
     if (req.files && req.files.length > 0) {
@@ -609,7 +735,7 @@ export const createProduct = async (req, res, next) => {
         images.push({
           url: uploadResult.url,
           public_id: uploadResult.public_id,
-          isPrimary: i === 0,
+          isPrimary: i === pIndex,
           altText: name
         });
       }
@@ -617,16 +743,15 @@ export const createProduct = async (req, res, next) => {
       const urls = Array.isArray(req.body.imageUrls) ? req.body.imageUrls : [req.body.imageUrls];
       urls.forEach((url, i) => {
         images.push({
-          url,
+          url: normalizeImageUrl(url, req),
           public_id: '',
-          isPrimary: i === 0,
+          isPrimary: i === pIndex,
           altText: name
         });
       });
     }
 
     if (images.length === 0) {
-      // Default placeholder image
       images.push({
         url: 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=800&q=80',
         public_id: '',
@@ -635,13 +760,16 @@ export const createProduct = async (req, res, next) => {
       });
     }
 
-    // Parse specifications if stringified
+    // Guarantee exactly one primary image
+    if (!images.some((img) => img.isPrimary)) {
+      images[0].isPrimary = true;
+    }
+
     let parsedSpecs = [];
     if (specifications) {
       parsedSpecs = typeof specifications === 'string' ? JSON.parse(specifications) : specifications;
     }
 
-    // Parse tags
     let parsedTags = [];
     if (tags) {
       parsedTags = typeof tags === 'string' ? tags.split(',').map((t) => t.trim()) : tags;
@@ -651,16 +779,16 @@ export const createProduct = async (req, res, next) => {
       name,
       slug,
       description,
-      shortDescription: shortDescription || '',
+      shortDescription,
       category,
       subcategory: subcategory || null,
       brand: brand || 'Aura Fashion',
       fabric: fabric || '',
       basePrice: Number(basePrice),
       discountPrice: discountPrice ? Number(discountPrice) : null,
-      images,
       specifications: parsedSpecs,
       tags: parsedTags,
+      images,
       isFeatured: isFeatured === 'true' || isFeatured === true,
       isNewArrival: isNewArrival === 'true' || isNewArrival === true,
       isTrending: isTrending === 'true' || isTrending === true,
@@ -668,13 +796,17 @@ export const createProduct = async (req, res, next) => {
       isActive: isActive !== undefined ? isActive === 'true' || isActive === true : true
     });
 
-    // Create variants if provided
-    let createdVariants = [];
+    // Create size/color matrix variants
     if (variants) {
       const parsedVariants = typeof variants === 'string' ? JSON.parse(variants) : variants;
       if (Array.isArray(parsedVariants) && parsedVariants.length > 0) {
         for (const v of parsedVariants) {
-          const sku = v.sku || `AF-${slug.slice(0, 4).toUpperCase()}-${v.color.slice(0, 3).toUpperCase()}-${v.size.toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
+          const sku =
+            v.sku ||
+            `AF-${name.slice(0, 3).toUpperCase()}-${(v.color || 'CLR').slice(0, 3).toUpperCase()}-${v.size}-${Math.floor(
+              100 + Math.random() * 900
+            )}`;
+
           const variantDoc = await ProductVariant.create({
             product: product._id,
             size: v.size,
@@ -685,9 +817,7 @@ export const createProduct = async (req, res, next) => {
             additionalPrice: Number(v.additionalPrice || 0),
             isActive: v.isActive !== undefined ? v.isActive : true
           });
-          createdVariants.push(variantDoc);
 
-          // Log initial stock transaction
           if (variantDoc.stockQuantity > 0) {
             await InventoryTransaction.create({
               product: product._id,
@@ -706,20 +836,20 @@ export const createProduct = async (req, res, next) => {
     }
 
     const populated = await Product.findById(product._id).populate('variants').populate('category');
+    const formatted = formatProductForResponse(populated, req);
 
-    // Real-time broadcast to all connected storefront and admin clients
-    broadcastEvent('product_created', populated);
+    broadcastEvent('product_created', formatted);
 
     res.status(201).json({
       success: true,
-      product: populated
+      product: formatted
     });
   } catch (error) {
     next(error);
   }
 };
 
-// @desc    Update product
+// @desc    Update product, photos, and primary selection
 // @route   PUT /api/products/:id
 // @access  Private (Admin)
 export const updateProduct = async (req, res, next) => {
@@ -746,7 +876,8 @@ export const updateProduct = async (req, res, next) => {
       isTrending,
       isBestSeller,
       isActive,
-      existingImages
+      existingImages,
+      primaryImageIndex
     } = req.body;
 
     if (name && name !== product.name) {
@@ -774,13 +905,28 @@ export const updateProduct = async (req, res, next) => {
       product.tags = typeof tags === 'string' ? tags.split(',').map((t) => t.trim()) : tags;
     }
 
-    // Preserve existing images that weren't deleted
+    // Parse existing retained images
     let updatedImages = [];
     if (existingImages) {
       const parsedExisting = typeof existingImages === 'string' ? JSON.parse(existingImages) : existingImages;
-      updatedImages = parsedExisting;
+      updatedImages = parsedExisting.map((img) => ({
+        url: img.url,
+        public_id: img.public_id || '',
+        isPrimary: Boolean(img.isPrimary),
+        altText: img.altText || product.name
+      }));
     } else {
-      updatedImages = product.images;
+      updatedImages = [...product.images];
+    }
+
+    // Safely delete removed images from storage
+    const keptPublicIds = new Set(updatedImages.map((i) => i.public_id).filter(Boolean));
+    for (const oldImg of product.images) {
+      if (oldImg.public_id && !keptPublicIds.has(oldImg.public_id)) {
+        deleteFromCloudinary(oldImg.public_id).catch((err) => {
+          console.warn('[Storage Delete Warning]:', err.message);
+        });
+      }
     }
 
     // Handle newly uploaded files
@@ -790,23 +936,35 @@ export const updateProduct = async (req, res, next) => {
         updatedImages.push({
           url: uploadResult.url,
           public_id: uploadResult.public_id,
-          isPrimary: updatedImages.length === 0,
+          isPrimary: false,
           altText: product.name
         });
       }
+    }
+
+    // Handle primary image designation
+    if (primaryImageIndex !== undefined && primaryImageIndex !== null && primaryImageIndex !== '') {
+      const idx = parseInt(primaryImageIndex, 10);
+      if (idx >= 0 && idx < updatedImages.length) {
+        updatedImages.forEach((img, i) => {
+          img.isPrimary = i === idx;
+        });
+      }
+    } else if (!updatedImages.some((img) => img.isPrimary) && updatedImages.length > 0) {
+      updatedImages[0].isPrimary = true;
     }
 
     product.images = updatedImages;
     await product.save();
 
     const populated = await Product.findById(product._id).populate('variants').populate('category');
+    const formatted = formatProductForResponse(populated, req);
 
-    // Real-time broadcast to all connected storefront and admin clients
-    broadcastEvent('product_updated', populated);
+    broadcastEvent('product_updated', formatted);
 
     res.json({
       success: true,
-      product: populated
+      product: formatted
     });
   } catch (error) {
     next(error);
@@ -823,11 +981,19 @@ export const deleteProduct = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
 
+    // Delete associated images from storage
+    if (Array.isArray(product.images)) {
+      for (const img of product.images) {
+        if (img.public_id) {
+          deleteFromCloudinary(img.public_id).catch(() => {});
+        }
+      }
+    }
+
     // Delete associated variants
     await ProductVariant.deleteMany({ product: product._id });
     await product.deleteOne();
 
-    // Real-time broadcast to all connected storefront and admin clients
     broadcastEvent('product_deleted', { productId: req.params.id });
 
     res.json({

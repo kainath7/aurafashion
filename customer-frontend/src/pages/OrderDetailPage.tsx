@@ -6,6 +6,7 @@ import api from '../services/api';
 import { Order } from '../types';
 import { OrderTracker } from '../components/OrderTracker';
 import { useStoreSettings } from '../context/StoreSettingsContext';
+import { getImageUrl, handleImageError } from '../utils/imageUrl';
 
 export const OrderDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -159,8 +160,9 @@ export const OrderDetailPage: React.FC = () => {
               <div key={item._id} className="pt-4 first:pt-0 flex items-center justify-between text-xs">
                 <div className="flex items-center gap-4">
                   <img
-                    src={item.productImage}
+                    src={getImageUrl(item.productImage)}
                     alt={item.productName}
+                    onError={handleImageError}
                     className="w-16 h-20 object-cover rounded-lg bg-stone-100 shrink-0"
                   />
                   <div>

@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import Order from '../models/Order.js';
 import Product from '../models/Product.js';
 import ProductVariant from '../models/ProductVariant.js';
@@ -26,12 +28,12 @@ const generateOrderNumber = () => {
   return `AF-${dateStr}-${randomStr}`;
 };
 
-// @desc    Create new order (with stock locking & Razorpay/COD checkout)
+// @desc    Create new order (with stock locking & Razorpay/COD checkout, Guest-friendly)
 // @route   POST /api/orders
-// @access  Private (Customer)
+// @access  Public / Optional Customer
 export const createOrder = async (req, res, next) => {
   try {
-    const { items, shippingAddress, paymentMethod, couponCode } = req.body;
+    const { items, customerInfo, shippingAddress, paymentMethod, couponCode } = req.body;
 
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ success: false, message: 'Your order must contain at least one item' });
@@ -39,6 +41,24 @@ export const createOrder = async (req, res, next) => {
 
     if (!shippingAddress || !shippingAddress.fullName || !shippingAddress.phone || !shippingAddress.houseNo || !shippingAddress.street || !shippingAddress.city || !shippingAddress.pincode) {
       return res.status(400).json({ success: false, message: 'Please provide a complete delivery address (Full Name, Phone, House/Flat, Street, City, and PIN code are required).' });
+    }
+
+    // Resolve customer contact details (guest checkout form or shipping address or user profile)
+    const customerName = (customerInfo?.name || shippingAddress.fullName || req.user?.name || '').trim();
+    const customerEmail = (customerInfo?.email || shippingAddress.email || req.user?.email || '').trim().toLowerCase();
+    const customerPhone = (customerInfo?.phone || shippingAddress.phone || req.user?.phone || '').toString().trim();
+
+    if (!customerName) {
+      return res.status(400).json({ success: false, message: 'Customer full name is required.' });
+    }
+
+    if (!customerEmail || !customerEmail.includes('@')) {
+      return res.status(400).json({ success: false, message: 'Please provide a valid email address for order confirmation and tracking updates.' });
+    }
+
+    const cleanCustomerPhone = customerPhone.replace(/\D/g, '');
+    if (cleanCustomerPhone.length < 10) {
+      return res.status(400).json({ success: false, message: 'Please provide a valid 10-digit mobile number for delivery coordination.' });
     }
 
     const cleanPincode = shippingAddress.pincode.toString().trim();
@@ -186,7 +206,7 @@ export const createOrder = async (req, res, next) => {
         previousStock: prevStock,
         newStock: variant.stockQuantity,
         reason: `Order ${orderNumber}`,
-        performedBy: req.user.name
+        performedBy: req.user?.name || customerName
       });
     }
 
@@ -203,7 +223,7 @@ export const createOrder = async (req, res, next) => {
         status: initialStatus,
         timestamp: new Date(),
         comment: paymentMethod === 'COD' ? 'Order placed with Cash on Delivery' : 'Order initialized awaiting payment',
-        updatedBy: req.user.name
+        updatedBy: req.user?.name || customerName
       }
     ];
 
@@ -220,8 +240,8 @@ export const createOrder = async (req, res, next) => {
             currency: 'INR',
             receipt: orderNumber,
             notes: {
-              customerEmail: req.user.email,
-              customerPhone: shippingAddress.phone
+              customerEmail,
+              customerPhone: cleanCustomerPhone
             }
           });
           razorpayOrderId = rzpOrder.id;
@@ -239,15 +259,15 @@ export const createOrder = async (req, res, next) => {
 
     const order = await Order.create({
       orderNumber,
-      user: req.user._id,
+      user: req.user ? req.user._id : null,
       customerInfo: {
-        name: req.user.name,
-        email: req.user.email,
-        phone: shippingAddress.phone || req.user.phone || ''
+        name: customerName,
+        email: customerEmail,
+        phone: cleanCustomerPhone
       },
       shippingAddress: {
         fullName: shippingAddress.fullName.trim(),
-        phone: shippingAddress.phone.trim(),
+        phone: cleanCustomerPhone,
         houseNo: shippingAddress.houseNo.trim(),
         street: shippingAddress.street.trim(),
         area: (shippingAddress.area || '').trim(),
@@ -282,8 +302,10 @@ export const createOrder = async (req, res, next) => {
       statusHistory
     });
 
-    // Clear user cart in DB after successful order creation
-    await Cart.findOneAndUpdate({ user: req.user._id }, { items: [], coupon: null });
+    // Clear user cart in DB after successful order creation if user exists
+    if (req.user) {
+      await Cart.findOneAndUpdate({ user: req.user._id }, { items: [], coupon: null });
+    }
 
     // Real-time broadcast to Admin room via Socket.IO
     try {
@@ -332,16 +354,22 @@ export const createOrder = async (req, res, next) => {
   }
 };
 
-// @desc    Verify Razorpay online payment signature
+// @desc    Verify Razorpay online payment signature (Guest & Customer friendly)
 // @route   POST /api/orders/:id/verify-payment
-// @access  Private (Customer)
+// @access  Public
 export const verifyPayment = async (req, res, next) => {
   try {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
-    const order = await Order.findOne({ _id: req.params.id, user: req.user._id });
+    
+    // Allow lookup by ID for guest or customer
+    const order = await Order.findById(req.params.id);
 
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    if (req.user && order.user && order.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'Unauthorized access to order' });
     }
 
     let isValid = false;
@@ -410,11 +438,95 @@ export const verifyPayment = async (req, res, next) => {
   }
 };
 
+// @desc    Track order without customer login (Order Number + Registered Mobile)
+// @route   POST /api/orders/track
+// @access  Public
+export const trackOrder = async (req, res, next) => {
+  try {
+    const { orderNumber, phone } = req.body;
+
+    if (!orderNumber || !phone) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide both your Order Number and registered Mobile Number.'
+      });
+    }
+
+    const cleanOrderNumber = orderNumber.toString().trim().toUpperCase();
+    const cleanInputPhone = phone.toString().replace(/\D/g, '');
+
+    if (cleanInputPhone.length < 10) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid 10-digit mobile number.'
+      });
+    }
+
+    const order = await Order.findOne({
+      orderNumber: { $regex: new RegExp(`^${cleanOrderNumber}$`, 'i') }
+    });
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'No order found matching the provided order number and mobile number.'
+      });
+    }
+
+    const custPhone = (order.customerInfo?.phone || '').replace(/\D/g, '');
+    const shipPhone = (order.shippingAddress?.phone || '').replace(/\D/g, '');
+
+    const phoneMatched =
+      (custPhone && (custPhone === cleanInputPhone || custPhone.endsWith(cleanInputPhone) || cleanInputPhone.endsWith(custPhone))) ||
+      (shipPhone && (shipPhone === cleanInputPhone || shipPhone.endsWith(cleanInputPhone) || cleanInputPhone.endsWith(shipPhone)));
+
+    if (!phoneMatched) {
+      return res.status(404).json({
+        success: false,
+        message: 'No order found matching the provided order number and mobile number.'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      order: {
+        _id: order._id,
+        orderNumber: order.orderNumber,
+        createdAt: order.createdAt,
+        orderStatus: order.orderStatus,
+        statusHistory: order.statusHistory,
+        trackingNumber: order.trackingNumber,
+        paymentMethod: order.paymentMethod,
+        paymentStatus: order.paymentInfo?.status,
+        customerInfo: {
+          name: order.customerInfo?.name,
+          phone: order.customerInfo?.phone ? `******${order.customerInfo.phone.slice(-4)}` : '',
+          email: order.customerInfo?.email
+        },
+        shippingAddress: {
+          fullName: order.shippingAddress?.fullName,
+          city: order.shippingAddress?.city,
+          state: order.shippingAddress?.state,
+          pincode: order.shippingAddress?.pincode,
+          addressSource: order.shippingAddress?.addressSource
+        },
+        items: order.items,
+        pricing: order.pricing
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // @desc    Get customer's orders
 // @route   GET /api/orders/my-orders
 // @access  Private (Customer)
 export const getMyOrders = async (req, res, next) => {
   try {
+    if (!req.user) {
+      return res.status(200).json({ success: true, count: 0, orders: [] });
+    }
     const orders = await Order.find({ user: req.user._id }).sort({ createdAt: -1 });
     res.json({
       success: true,
@@ -428,18 +540,17 @@ export const getMyOrders = async (req, res, next) => {
 
 // @desc    Get single order details
 // @route   GET /api/orders/:id
-// @access  Private (Customer / Admin)
+// @access  Public / Optional Auth
 export const getOrderById = async (req, res, next) => {
   try {
-    let order;
-    if (req.admin) {
-      order = await Order.findById(req.params.id).populate('user', 'name email phone');
-    } else {
-      order = await Order.findOne({ _id: req.params.id, user: req.user._id });
-    }
+    const order = await Order.findById(req.params.id);
 
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    if (req.user && order.user && order.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'Unauthorized' });
     }
 
     res.json({
@@ -707,16 +818,45 @@ export const generateOrderInvoice = async (req, res, next) => {
 
     doc.pipe(res);
 
-    // Header
-    doc
-      .fontSize(22)
-      .fillColor('#832729')
-      .text('AURA FASHION', 40, 40)
-      .fontSize(10)
-      .fillColor('#555555')
-      .text('Curated Elegance & Modern Clothing', 40, 68)
-      .text('Bengaluru, Karnataka, India', 40, 82)
-      .text('Phone / WhatsApp: +91 7022018850 | Email: shoppe.aurafashion@gmail.com', 40, 96);
+    // Header with Logo
+    const logoCandidates = [
+      path.join(process.cwd(), 'public', 'logo-black.png'),
+      path.join(process.cwd(), '..', 'customer-frontend', 'public', 'logo-black.png'),
+      path.join(process.cwd(), '..', 'admin-frontend', 'public', 'logo-black.png')
+    ];
+    const foundLogo = logoCandidates.find((p) => fs.existsSync(p));
+
+    if (foundLogo) {
+      try {
+        doc.image(foundLogo, 40, 25, { width: 110 });
+        doc
+          .fontSize(9)
+          .fillColor('#555555')
+          .text('Curated Elegance & Modern Clothing', 165, 42)
+          .text('Bengaluru, Karnataka, India', 165, 56)
+          .text('Phone / WhatsApp: +91 7022018850 | Email: shoppe.aurafashion@gmail.com', 165, 70);
+      } catch (err) {
+        doc
+          .fontSize(22)
+          .fillColor('#832729')
+          .text('AURA FASHION', 40, 40)
+          .fontSize(10)
+          .fillColor('#555555')
+          .text('Curated Elegance & Modern Clothing', 40, 68)
+          .text('Bengaluru, Karnataka, India', 40, 82)
+          .text('Phone / WhatsApp: +91 7022018850 | Email: shoppe.aurafashion@gmail.com', 40, 96);
+      }
+    } else {
+      doc
+        .fontSize(22)
+        .fillColor('#832729')
+        .text('AURA FASHION', 40, 40)
+        .fontSize(10)
+        .fillColor('#555555')
+        .text('Curated Elegance & Modern Clothing', 40, 68)
+        .text('Bengaluru, Karnataka, India', 40, 82)
+        .text('Phone / WhatsApp: +91 7022018850 | Email: shoppe.aurafashion@gmail.com', 40, 96);
+    }
 
     doc.moveTo(40, 115).lineTo(555, 115).strokeColor('#E2E8F0').stroke();
 

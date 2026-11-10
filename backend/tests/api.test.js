@@ -13,20 +13,28 @@ import ProductVariant from '../src/models/ProductVariant.js';
 import StoreSettings from '../src/models/StoreSettings.js';
 import Coupon from '../src/models/Coupon.js';
 import EmailLog from '../src/models/EmailLog.js';
+import Order from '../src/models/Order.js';
 import crypto from 'crypto';
 
 let mongoServer;
 const request = supertest(app);
 
 before(async () => {
-  mongoServer = await MongoMemoryServer.create();
-  const uri = mongoServer.getUri();
-  await mongoose.connect(uri);
+  try {
+    mongoServer = await MongoMemoryServer.create();
+    const uri = mongoServer.getUri();
+    await mongoose.connect(uri);
+  } catch (err) {
+    console.warn('MongoMemoryServer initialization issue, falling back to local MongoDB:', err.message);
+    await mongoose.connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/aura_fashion_test');
+  }
 });
 
 after(async () => {
   await mongoose.disconnect();
-  await mongoServer.stop();
+  if (mongoServer) {
+    await mongoServer.stop();
+  }
 });
 
 describe('Aura Fashion E-Commerce Backend Test Suite', () => {
@@ -566,5 +574,232 @@ describe('Aura Fashion E-Commerce Backend Test Suite', () => {
       .set('Authorization', `Bearer ${customerToken}`);
     assert.equal(resInvoice.status, 200);
     assert.equal(resInvoice.header['content-type'], 'application/pdf');
+  });
+
+  test('21. Admin Forgot Password via Email OTP Workflow', async () => {
+    // 21a: Request OTP for registered admin
+    const reqOtpRes = await request
+      .post('/api/admin/auth/forgot-password/request-otp')
+      .send({ email: 'admin@aurafashion.com' });
+    assert.equal(reqOtpRes.status, 200);
+    assert.equal(reqOtpRes.body.success, true);
+
+    // Verify OTP was hashed in MongoDB and never returned in response
+    assert.equal(reqOtpRes.body.otp, undefined);
+    assert.equal(reqOtpRes.body.token, undefined);
+
+    const adminDoc = await Admin.findOne({ email: 'admin@aurafashion.com' }).select(
+      '+resetOtpHash +resetOtpExpires +resetOtpAttempts'
+    );
+    assert.ok(adminDoc.resetOtpHash);
+    assert.ok(adminDoc.resetOtpExpires > new Date());
+    assert.equal(adminDoc.resetOtpAttempts, 0);
+
+    // 21b: Enforce 60-second cooldown on immediate second request
+    const cooldownRes = await request
+      .post('/api/admin/auth/forgot-password/request-otp')
+      .send({ email: 'admin@aurafashion.com' });
+    assert.equal(cooldownRes.status, 429);
+    assert.ok(cooldownRes.body.message.includes('wait'));
+
+    // 21c: User enumeration protection for non-existent admin email
+    const nonExistentRes = await request
+      .post('/api/admin/auth/forgot-password/request-otp')
+      .send({ email: 'nobody@nowhere.com' });
+    assert.equal(nonExistentRes.status, 200);
+    assert.equal(nonExistentRes.body.success, true);
+
+    // Set a known OTP in DB for automated test verification
+    const testOtp = '849201';
+    const testHash = crypto.createHash('sha256').update(testOtp).digest('hex');
+    adminDoc.resetOtpHash = testHash;
+    adminDoc.resetOtpExpires = new Date(Date.now() + 5 * 60 * 1000);
+    adminDoc.resetOtpAttempts = 0;
+    await adminDoc.save();
+
+    // 21d: Incorrect OTP attempt increments attempt count
+    const wrongOtpRes = await request
+      .post('/api/admin/auth/forgot-password/verify-otp')
+      .send({ email: 'admin@aurafashion.com', otp: '111111' });
+    assert.equal(wrongOtpRes.status, 400);
+
+    // 21e: Correct OTP verifies successfully without returning token
+    const correctOtpRes = await request
+      .post('/api/admin/auth/forgot-password/verify-otp')
+      .send({ email: 'admin@aurafashion.com', otp: testOtp });
+    assert.equal(correctOtpRes.status, 200);
+    assert.equal(correctOtpRes.body.success, true);
+    assert.equal(correctOtpRes.body.token, undefined);
+
+    // 21f: Password reset with weak password fails
+    const weakPassRes = await request
+      .post('/api/admin/auth/forgot-password/reset-password')
+      .send({
+        email: 'admin@aurafashion.com',
+        otp: testOtp,
+        newPassword: 'weak',
+        confirmPassword: 'weak'
+      });
+    assert.equal(weakPassRes.status, 400);
+
+    // 21g: Password reset with mismatched confirmation fails
+    const mismatchRes = await request
+      .post('/api/admin/auth/forgot-password/reset-password')
+      .send({
+        email: 'admin@aurafashion.com',
+        otp: testOtp,
+        newPassword: 'AuraPassword@2026',
+        confirmPassword: 'DifferentPassword@2026'
+      });
+    assert.equal(mismatchRes.status, 400);
+
+    // 21h: Successful password reset
+    const resetRes = await request
+      .post('/api/admin/auth/forgot-password/reset-password')
+      .send({
+        email: 'admin@aurafashion.com',
+        otp: testOtp,
+        newPassword: 'AuraNewSecure@2026',
+        confirmPassword: 'AuraNewSecure@2026'
+      });
+    assert.equal(resetRes.status, 200);
+    assert.equal(resetRes.body.success, true);
+
+    // Old password must fail
+    const oldLoginRes = await request
+      .post('/api/admin/auth/login')
+      .send({ email: 'admin@aurafashion.com', password: 'AuraAdmin@2026' });
+    assert.equal(oldLoginRes.status, 401);
+
+    // New password must succeed
+    const newLoginRes = await request
+      .post('/api/admin/auth/login')
+      .send({ email: 'admin@aurafashion.com', password: 'AuraNewSecure@2026' });
+    assert.equal(newLoginRes.status, 200);
+    assert.ok(newLoginRes.body.token);
+    adminToken = newLoginRes.body.token; // Update token for subsequent tests
+  });
+
+  test('22. Admin Change Password from Settings with OTP', async () => {
+    // Reset cooldown timestamp on admin doc for testing
+    await Admin.updateOne({ email: 'admin@aurafashion.com' }, { resetOtpLastSentAt: null });
+
+    // 22a: Authenticated admin requests OTP
+    const reqOtpRes = await request
+      .post('/api/admin/auth/change-password/request-otp')
+      .set('Authorization', `Bearer ${adminToken}`);
+    assert.equal(reqOtpRes.status, 200);
+    assert.equal(reqOtpRes.body.success, true);
+
+    // Set known test OTP in document
+    const testOtp = '937104';
+    const testHash = crypto.createHash('sha256').update(testOtp).digest('hex');
+    const adminDoc = await Admin.findOne({ email: 'admin@aurafashion.com' }).select('+resetOtpHash +resetOtpExpires');
+    adminDoc.resetOtpHash = testHash;
+    adminDoc.resetOtpExpires = new Date(Date.now() + 5 * 60 * 1000);
+    adminDoc.resetOtpAttempts = 0;
+    await adminDoc.save();
+
+    // 22b: Verify OTP
+    const verifyRes = await request
+      .post('/api/admin/auth/change-password/verify-otp')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ otp: testOtp });
+    assert.equal(verifyRes.status, 200);
+    assert.equal(verifyRes.body.success, true);
+
+    // 22c: Update password from settings
+    const changeRes = await request
+      .post('/api/admin/auth/change-password/reset-password')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        otp: testOtp,
+        newPassword: 'AuraAdmin@2026',
+        confirmPassword: 'AuraAdmin@2026'
+      });
+    assert.equal(changeRes.status, 200);
+    assert.equal(changeRes.body.success, true);
+
+    // Re-verify login with restored master password
+    const loginRes = await request
+      .post('/api/admin/auth/login')
+      .send({ email: 'admin@aurafashion.com', password: 'AuraAdmin@2026' });
+    assert.equal(loginRes.status, 200);
+    adminToken = loginRes.body.token;
+  });
+
+  test('23. Guest Checkout - Order Placement without Customer Account', async () => {
+    // Place order with NO customer authorization header
+    const guestOrderRes = await request
+      .post('/api/orders')
+      .send({
+        items: [{ variantId, quantity: 1 }],
+        customerInfo: {
+          name: 'Ananya Rao',
+          email: 'ananya.rao@example.com',
+          phone: '9845012345'
+        },
+        shippingAddress: {
+          fullName: 'Ananya Rao',
+          phone: '9845012345',
+          houseNo: 'House #45',
+          street: 'Koramangala 4th Block',
+          city: 'Bengaluru',
+          state: 'Karnataka',
+          pincode: '560034'
+        },
+        paymentMethod: 'COD'
+      });
+
+    assert.equal(guestOrderRes.status, 201);
+    assert.equal(guestOrderRes.body.success, true);
+    const guestOrder = guestOrderRes.body.order;
+    assert.equal(guestOrder.user, null); // No user account ID
+    assert.equal(guestOrder.customerInfo.name, 'Ananya Rao');
+    assert.equal(guestOrder.customerInfo.email, 'ananya.rao@example.com');
+    assert.ok(guestOrder.orderNumber.startsWith('AF-'));
+    orderId = guestOrder._id;
+  });
+
+  test('24. Order Tracking without Customer Login (Order Number + Mobile Number)', async () => {
+    const orderDoc = await Order.findById(orderId);
+
+    // 24a: Missing fields rejected
+    const badReqRes = await request
+      .post('/api/orders/track')
+      .send({ orderNumber: orderDoc.orderNumber });
+    assert.equal(badReqRes.status, 400);
+
+    // 24b: Wrong phone rejected
+    const wrongPhoneRes = await request
+      .post('/api/orders/track')
+      .send({ orderNumber: orderDoc.orderNumber, phone: '9999999999' });
+    assert.equal(wrongPhoneRes.status, 404);
+
+    // 24c: Valid order number and matching registered mobile returns tracking
+    const trackRes = await request
+      .post('/api/orders/track')
+      .send({ orderNumber: orderDoc.orderNumber, phone: '9845012345' });
+    assert.equal(trackRes.status, 200);
+    assert.equal(trackRes.body.success, true);
+    assert.equal(trackRes.body.order.orderNumber, orderDoc.orderNumber);
+    assert.ok(trackRes.body.order.orderStatus);
+    assert.ok(Array.isArray(trackRes.body.order.statusHistory));
+    assert.ok(Array.isArray(trackRes.body.order.items));
+  });
+
+  test('25. Product Recommendations Engine (Similar Products, You May Also Like)', async () => {
+    const recRes = await request.get(`/api/products/${productId}/recommendations`);
+    assert.equal(recRes.status, 200);
+    assert.equal(recRes.body.success, true);
+    assert.ok(recRes.body.sections);
+    assert.ok(Array.isArray(recRes.body.sections.similarProducts));
+    assert.ok(Array.isArray(recRes.body.sections.youMayAlsoLike));
+    assert.ok(Array.isArray(recRes.body.sections.moreFromCategory));
+
+    // Excludes the source product itself
+    recRes.body.sections.similarProducts.forEach((p) => {
+      assert.notEqual(p._id.toString(), productId.toString());
+    });
   });
 });

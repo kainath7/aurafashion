@@ -13,11 +13,12 @@ cloudinary.config({
 });
 
 const isCloudinaryConfigured = () => {
-  return (
+  return Boolean(
     process.env.CLOUDINARY_CLOUD_NAME &&
     process.env.CLOUDINARY_API_KEY &&
     process.env.CLOUDINARY_API_SECRET &&
-    process.env.CLOUDINARY_API_SECRET !== 'your_cloudinary_api_secret'
+    process.env.CLOUDINARY_API_SECRET !== 'your_cloudinary_api_secret' &&
+    process.env.CLOUDINARY_API_KEY !== '123456789012345'
   );
 };
 
@@ -30,7 +31,8 @@ export const uploadToCloudinary = async (fileBuffer, folder = 'aura_fashion') =>
           if (error) return reject(error);
           resolve({
             url: result.secure_url,
-            public_id: result.public_id
+            public_id: result.public_id,
+            isLocalFallback: false
           });
         }
       );
@@ -38,25 +40,42 @@ export const uploadToCloudinary = async (fileBuffer, folder = 'aura_fashion') =>
     });
   }
 
-  // Fallback storage for local offline testing when credentials aren't provided yet
+  // Fallback storage for local / offline development when cloud keys aren't provided
   const uploadsDir = path.join(__dirname, '../../uploads');
   if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
   }
+
   const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}.webp`;
   const filePath = path.join(uploadsDir, filename);
   fs.writeFileSync(filePath, fileBuffer);
 
+  const backendBase = (process.env.BACKEND_URL || 'http://localhost:5000').replace(/\/+$/, '');
+
   return {
-    url: `/uploads/${filename}`,
+    url: `${backendBase}/uploads/${filename}`,
     public_id: `local_${filename}`,
     isLocalFallback: true
   };
 };
 
 export const deleteFromCloudinary = async (public_id) => {
-  if (isCloudinaryConfigured() && !public_id.startsWith('local_')) {
-    return await cloudinary.uploader.destroy(public_id);
+  if (!public_id) return true;
+  try {
+    if (public_id.startsWith('local_')) {
+      const filename = public_id.replace(/^local_/, '');
+      const uploadsDir = path.join(__dirname, '../../uploads');
+      const filePath = path.join(uploadsDir, filename);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+      return true;
+    }
+    if (isCloudinaryConfigured()) {
+      return await cloudinary.uploader.destroy(public_id);
+    }
+  } catch (err) {
+    console.warn('[Image Deletion Warning] Failed to delete image asset:', err.message);
   }
   return true;
 };

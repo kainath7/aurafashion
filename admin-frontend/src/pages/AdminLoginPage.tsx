@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ShieldCheck, ArrowRight, Lock } from 'lucide-react';
+import { useNavigate, Link } from 'react-router-dom';
+import { ShieldCheck, ArrowRight, Lock, KeyRound } from 'lucide-react';
 import { useAdminAuth } from '../context/AdminAuthContext';
 
 export const AdminLoginPage: React.FC = () => {
   const navigate = useNavigate();
   const { login } = useAdminAuth();
 
-  const [email, setEmail] = useState('admin@aurafashion.com');
+  const [email, setEmail] = useState('shoppe.aurafashion@gmail.com');
   const [password, setPassword] = useState('AuraAdmin@2026');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -30,13 +30,12 @@ export const AdminLoginPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
       <div className="max-w-md w-full bg-slate-800/90 backdrop-blur-md rounded-2xl border border-slate-700 shadow-2xl p-8 space-y-6">
-        <div className="text-center space-y-2">
-          <div className="w-12 h-12 bg-[#832729] text-white rounded-xl flex items-center justify-center mx-auto shadow-lg shadow-[#832729]/30">
-            <Lock className="w-6 h-6" />
-          </div>
-          <span className="font-serif text-2xl font-bold tracking-widest uppercase text-white block">
-            Aura Fashion
-          </span>
+        <div className="text-center space-y-3">
+          <img
+            src="/logo-white.png"
+            alt="Aura Fashion"
+            className="h-16 w-auto mx-auto object-contain drop-shadow-md"
+          />
           <p className="text-xs uppercase tracking-widest text-[#D4AF37] font-semibold">
             Administrative Control Center
           </p>
@@ -63,9 +62,17 @@ export const AdminLoginPage: React.FC = () => {
           </div>
 
           <div>
-            <label className="font-bold uppercase tracking-wider block mb-1 text-slate-400">
-              Master Password
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="font-bold uppercase tracking-wider text-slate-400">
+                Master Password
+              </label>
+              <Link
+                to="/forgot-password"
+                className="text-[11px] text-[#D4AF37] hover:underline font-medium"
+              >
+                Forgot Password?
+              </Link>
+            </div>
             <input
               type="password"
               required

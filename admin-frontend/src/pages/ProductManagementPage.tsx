@@ -10,10 +10,14 @@ import {
   Check,
   AlertCircle,
   ExternalLink,
-  Shirt
+  Shirt,
+  Star,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import api from '../services/api';
 import { Product, Category } from '../types';
+import { getImageUrl, handleImageError } from '../utils/imageUrl';
 
 export const ProductManagementPage: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
@@ -52,6 +56,7 @@ export const ProductManagementPage: React.FC = () => {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [filePreviews, setFilePreviews] = useState<string[]>([]);
   const [existingImages, setExistingImages] = useState<any[]>([]);
+  const [primaryImageIndex, setPrimaryImageIndex] = useState<number>(0);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
 
@@ -110,6 +115,7 @@ export const ProductManagementPage: React.FC = () => {
     setSelectedFiles([]);
     setFilePreviews([]);
     setExistingImages([]);
+    setPrimaryImageIndex(0);
     setFormError('');
 
     // Generate initial variants
@@ -137,6 +143,8 @@ export const ProductManagementPage: React.FC = () => {
     setSelectedFiles([]);
     setFilePreviews([]);
     setExistingImages(p.images || []);
+    const primIdx = p.images?.findIndex((i) => i.isPrimary);
+    setPrimaryImageIndex(primIdx !== undefined && primIdx >= 0 ? primIdx : 0);
     setFormError('');
 
     // Load existing variants if available
@@ -180,15 +188,86 @@ export const ProductManagementPage: React.FC = () => {
   const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       const filesArr = Array.from(e.target.files);
-      setSelectedFiles((prev) => [...prev, ...filesArr]);
+      const validFiles: File[] = [];
+      const errors: string[] = [];
 
-      const newPreviews = filesArr.map((f) => URL.createObjectURL(f));
-      setFilePreviews((prev) => [...prev, ...newPreviews]);
+      filesArr.forEach((file) => {
+        if (!file.type.startsWith('image/')) {
+          errors.push(`"${file.name}" is not a valid image format.`);
+          return;
+        }
+        if (file.size > 10 * 1024 * 1024) {
+          errors.push(`"${file.name}" exceeds 10MB limit.`);
+          return;
+        }
+        validFiles.push(file);
+      });
+
+      if (errors.length > 0) {
+        setFormError(errors.join(' '));
+      }
+
+      if (validFiles.length > 0) {
+        setSelectedFiles((prev) => [...prev, ...validFiles]);
+        const newPreviews = validFiles.map((f) => URL.createObjectURL(f));
+        setFilePreviews((prev) => [...prev, ...newPreviews]);
+      }
     }
   };
 
+  const handleSetPrimaryExisting = (index: number) => {
+    setExistingImages((prev) =>
+      prev.map((img, i) => ({
+        ...img,
+        isPrimary: i === index
+      }))
+    );
+    setPrimaryImageIndex(index);
+  };
+
+  const handleMoveExisting = (index: number, direction: -1 | 1) => {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= existingImages.length) return;
+
+    setExistingImages((prev) => {
+      const copy = [...prev];
+      const temp = copy[index];
+      copy[index] = copy[targetIndex];
+      copy[targetIndex] = temp;
+      return copy;
+    });
+  };
+
   const handleRemoveExistingImage = (index: number) => {
-    setExistingImages((prev) => prev.filter((_, i) => i !== index));
+    setExistingImages((prev) => {
+      const filtered = prev.filter((_, i) => i !== index);
+      // If removed was primary, default first to primary
+      if (filtered.length > 0 && !filtered.some((img) => img.isPrimary)) {
+        filtered[0].isPrimary = true;
+      }
+      return filtered;
+    });
+  };
+
+  const handleMoveNew = (index: number, direction: -1 | 1) => {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= selectedFiles.length) return;
+
+    setSelectedFiles((prev) => {
+      const copy = [...prev];
+      const temp = copy[index];
+      copy[index] = copy[targetIndex];
+      copy[targetIndex] = temp;
+      return copy;
+    });
+
+    setFilePreviews((prev) => {
+      const copy = [...prev];
+      const temp = copy[index];
+      copy[index] = copy[targetIndex];
+      copy[targetIndex] = temp;
+      return copy;
+    });
   };
 
   const handleRemoveNewFile = (index: number) => {
@@ -217,6 +296,7 @@ export const ProductManagementPage: React.FC = () => {
       formData.append('isTrending', String(formIsTrending));
       formData.append('isBestSeller', String(formIsBestSeller));
       formData.append('isActive', String(formIsActive));
+      formData.append('primaryImageIndex', String(primaryImageIndex));
 
       // Append variants payload
       formData.append('variants', JSON.stringify(generatedVariants));
@@ -339,8 +419,9 @@ export const ProductManagementPage: React.FC = () => {
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-3">
                           <img
-                            src={primaryImg || 'https://via.placeholder.com/80'}
+                            src={getImageUrl(primaryImg)}
                             alt={p.name}
+                            onError={handleImageError}
                             className="w-10 h-12 object-cover rounded bg-slate-100"
                           />
                           <div>
@@ -570,35 +651,133 @@ export const ProductManagementPage: React.FC = () => {
                   </label>
                 </div>
 
-                {/* Thumbnails Gallery preview */}
-                <div className="flex flex-wrap gap-3 pt-2">
-                  {/* Existing images */}
-                  {existingImages.map((img, i) => (
-                    <div key={i} className="relative w-20 h-24 rounded-lg overflow-hidden border border-slate-200">
-                      <img src={img.url} alt="existing" className="w-full h-full object-cover" />
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveExistingImage(i)}
-                        className="absolute top-1 right-1 bg-red-600 text-white rounded-full p-0.5 shadow-sm"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                  ))}
+                {/* Thumbnails Gallery preview with Reordering & Primary Selection */}
+                <div className="space-y-2 pt-2">
+                  <p className="text-[11px] text-slate-500">
+                    Click <strong>⭐</strong> or <strong>Make Primary</strong> to set the showcase thumbnail. Use arrows to reorder.
+                  </p>
 
-                  {/* Newly selected images */}
-                  {filePreviews.map((url, i) => (
-                    <div key={i} className="relative w-20 h-24 rounded-lg overflow-hidden border-2 border-[#832729]">
-                      <img src={url} alt="new preview" className="w-full h-full object-cover" />
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveNewFile(i)}
-                        className="absolute top-1 right-1 bg-red-600 text-white rounded-full p-0.5 shadow-sm"
+                  <div className="flex flex-wrap gap-4 pt-1">
+                    {/* Existing images */}
+                    {existingImages.map((img, i) => {
+                      const isPrimary = Boolean(img.isPrimary || (i === 0 && !existingImages.some((x) => x.isPrimary)));
+                      return (
+                        <div
+                          key={`existing-${i}`}
+                          className={`relative w-28 rounded-xl overflow-hidden border-2 bg-slate-50 shadow-xs flex flex-col ${
+                            isPrimary ? 'border-[#832729] ring-2 ring-[#832729]/20' : 'border-slate-200'
+                          }`}
+                        >
+                          <div className="relative h-28 w-full bg-slate-100">
+                            <img
+                              src={getImageUrl(img.url)}
+                              alt={`Angle ${i + 1}`}
+                              onError={handleImageError}
+                              className="w-full h-full object-cover"
+                            />
+                            {/* Primary Badge */}
+                            {isPrimary ? (
+                              <span className="absolute top-1 left-1 bg-[#832729] text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-xs flex items-center gap-0.5">
+                                <Star className="w-2.5 h-2.5 fill-current" /> Primary
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleSetPrimaryExisting(i)}
+                                className="absolute top-1 left-1 bg-black/60 hover:bg-[#832729] text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-xs transition"
+                              >
+                                Set Primary
+                              </button>
+                            )}
+
+                            {/* Remove Button */}
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveExistingImage(i)}
+                              title="Delete from gallery"
+                              className="absolute top-1 right-1 bg-rose-600 hover:bg-rose-700 text-white rounded-full p-1 shadow-xs transition cursor-pointer"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+
+                          {/* Reordering controls */}
+                          <div className="p-1 bg-white border-t border-slate-100 flex items-center justify-between text-[10px]">
+                            <button
+                              type="button"
+                              disabled={i === 0}
+                              onClick={() => handleMoveExisting(i, -1)}
+                              className="p-1 rounded hover:bg-slate-100 disabled:opacity-20 cursor-pointer"
+                              title="Move Left"
+                            >
+                              <ChevronLeft className="w-3.5 h-3.5 text-slate-700" />
+                            </button>
+                            <span className="text-slate-400 font-mono text-[9px]">#{i + 1}</span>
+                            <button
+                              type="button"
+                              disabled={i === existingImages.length - 1}
+                              onClick={() => handleMoveExisting(i, 1)}
+                              className="p-1 rounded hover:bg-slate-100 disabled:opacity-20 cursor-pointer"
+                              title="Move Right"
+                            >
+                              <ChevronRight className="w-3.5 h-3.5 text-slate-700" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* Newly selected images */}
+                    {filePreviews.map((url, i) => (
+                      <div
+                        key={`new-${i}`}
+                        className="relative w-28 rounded-xl overflow-hidden border-2 border-emerald-500 bg-slate-50 shadow-xs flex flex-col"
                       >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                  ))}
+                        <div className="relative h-28 w-full bg-slate-100">
+                          <img
+                            src={url}
+                            alt={`New preview ${i + 1}`}
+                            className="w-full h-full object-cover"
+                          />
+                          <span className="absolute top-1 left-1 bg-emerald-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-xs">
+                            New Upload
+                          </span>
+
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveNewFile(i)}
+                            title="Remove file"
+                            className="absolute top-1 right-1 bg-rose-600 hover:bg-rose-700 text-white rounded-full p-1 shadow-xs transition cursor-pointer"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+
+                        {/* Reordering controls for new uploads */}
+                        <div className="p-1 bg-white border-t border-slate-100 flex items-center justify-between text-[10px]">
+                          <button
+                            type="button"
+                            disabled={i === 0}
+                            onClick={() => handleMoveNew(i, -1)}
+                            className="p-1 rounded hover:bg-slate-100 disabled:opacity-20 cursor-pointer"
+                            title="Move Left"
+                          >
+                            <ChevronLeft className="w-3.5 h-3.5 text-slate-700" />
+                          </button>
+                          <span className="text-emerald-600 font-mono text-[9px]">+{i + 1}</span>
+                          <button
+                            type="button"
+                            disabled={i === filePreviews.length - 1}
+                            onClick={() => handleMoveNew(i, 1)}
+                            className="p-1 rounded hover:bg-slate-100 disabled:opacity-20 cursor-pointer"
+                            title="Move Right"
+                          >
+                            <ChevronRight className="w-3.5 h-3.5 text-slate-700" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
 

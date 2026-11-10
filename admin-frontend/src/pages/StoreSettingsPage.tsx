@@ -10,12 +10,20 @@ import {
   MapPin,
   Bell,
   Send,
-  AlertCircle
+  AlertCircle,
+  KeyRound,
+  Lock,
+  Eye,
+  EyeOff,
+  LogOut,
+  Check
 } from 'lucide-react';
 import api from '../services/api';
 import { StoreSettings, EmailLog } from '../types';
+import { useAdminAuth } from '../context/AdminAuthContext';
 
 export const StoreSettingsPage: React.FC = () => {
+  const { admin, logout } = useAdminAuth();
   const [settings, setSettings] = useState<StoreSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -27,6 +35,148 @@ export const StoreSettingsPage: React.FC = () => {
   const [testEmailStatus, setTestEmailStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [emailLogs, setEmailLogs] = useState<EmailLog[]>([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
+
+  // Security / Admin Change Password states
+  const [securityStep, setSecurityStep] = useState<1 | 2 | 3 | 4>(1);
+  const [adminEmail, setAdminEmail] = useState(admin?.email || 'shoppe.aurafashion@gmail.com');
+  const [securityOtp, setSecurityOtp] = useState('');
+  const [newMasterPassword, setNewMasterPassword] = useState('');
+  const [confirmMasterPassword, setConfirmMasterPassword] = useState('');
+  const [showSecurityPassword, setShowSecurityPassword] = useState(false);
+  const [securityLoading, setSecurityLoading] = useState(false);
+  const [securityError, setSecurityError] = useState('');
+  const [securitySuccess, setSecuritySuccess] = useState('');
+  const [securityCooldown, setSecurityCooldown] = useState(0);
+
+  useEffect(() => {
+    if (admin?.email) {
+      setAdminEmail(admin.email);
+    }
+  }, [admin]);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    if (securityCooldown > 0) {
+      timer = setTimeout(() => setSecurityCooldown((prev) => prev - 1), 1000);
+    }
+    return () => clearTimeout(timer);
+  }, [securityCooldown]);
+
+  const handleRequestSecurityOtp = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setSecurityError('');
+    setSecuritySuccess('');
+
+    if (!adminEmail || !adminEmail.includes('@')) {
+      setSecurityError('Please enter a valid administrator email.');
+      return;
+    }
+
+    setSecurityLoading(true);
+
+    try {
+      const res = await api.post('/admin/auth/change-password/request-otp', {
+        email: adminEmail.trim().toLowerCase()
+      });
+
+      if (res.data?.success) {
+        setSecuritySuccess(res.data?.message || 'Verification OTP dispatched to your administrator email.');
+        setSecurityCooldown(60);
+        setSecurityStep(2);
+      } else {
+        setSecurityError(res.data?.message || 'Failed to dispatch OTP. Please check your SMTP configuration.');
+      }
+    } catch (err: any) {
+      setSecurityError(
+        err.response?.data?.message ||
+        err.message ||
+        'Failed to dispatch verification OTP via SMTP. Please check connection and settings.'
+      );
+    } finally {
+      setSecurityLoading(false);
+    }
+  };
+
+  const handleVerifySecurityOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSecurityError('');
+    setSecuritySuccess('');
+
+    const cleanOtp = securityOtp.trim().replace(/\D/g, '');
+    if (cleanOtp.length !== 6) {
+      setSecurityError('Please enter the 6-digit OTP code.');
+      return;
+    }
+
+    setSecurityLoading(true);
+
+    try {
+      const res = await api.post('/admin/auth/change-password/verify-otp', {
+        email: adminEmail.trim().toLowerCase(),
+        otp: cleanOtp
+      });
+
+      if (res.data?.success) {
+        setSecuritySuccess(res.data?.message || 'OTP verified successfully.');
+        setSecurityStep(3);
+      } else {
+        setSecurityError(res.data?.message || 'Invalid or expired OTP.');
+      }
+    } catch (err: any) {
+      setSecurityError(err.response?.data?.message || 'OTP verification failed.');
+    } finally {
+      setSecurityLoading(false);
+    }
+  };
+
+  const hasSecurityMinLength = newMasterPassword.length >= 8;
+  const hasSecurityUpper = /[A-Z]/.test(newMasterPassword);
+  const hasSecurityLower = /[a-z]/.test(newMasterPassword);
+  const hasSecurityNumber = /[0-9]/.test(newMasterPassword);
+  const isSecurityPasswordValid = hasSecurityMinLength && hasSecurityUpper && hasSecurityLower && hasSecurityNumber;
+
+  const handleUpdateMasterPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSecurityError('');
+    setSecuritySuccess('');
+
+    if (newMasterPassword.length < 8) {
+      setSecurityError('Password must be at least 8 characters long.');
+      return;
+    }
+
+    if (!/[A-Z]/.test(newMasterPassword) || !/[a-z]/.test(newMasterPassword) || !/[0-9]/.test(newMasterPassword)) {
+      setSecurityError('Password must include uppercase, lowercase, and numeric characters.');
+      return;
+    }
+
+    if (newMasterPassword !== confirmMasterPassword) {
+      setSecurityError('Passwords do not match.');
+      return;
+    }
+
+    setSecurityLoading(true);
+
+    try {
+      const res = await api.post('/admin/auth/change-password/update-password', {
+        email: adminEmail.trim().toLowerCase(),
+        otp: securityOtp,
+        newPassword: newMasterPassword,
+        confirmPassword: confirmMasterPassword
+      });
+
+      if (res.data?.success) {
+        setSecurityStep(4);
+        setSecuritySuccess(res.data?.message || 'Master password updated successfully.');
+      } else {
+        setSecurityError(res.data?.message || 'Failed to update password.');
+      }
+    } catch (err: any) {
+      setSecurityError(err.response?.data?.message || 'Password update failed.');
+    } finally {
+      setSecurityLoading(false);
+    }
+  };
 
   const fetchSettings = async () => {
     try {
@@ -671,6 +821,238 @@ export const StoreSettingsPage: React.FC = () => {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+      </div>
+
+      {/* Section 8: Security & Master Password Change */}
+      <div id="security" className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-xs space-y-6">
+        <div className="flex items-center justify-between pb-3 border-b">
+          <div>
+            <h2 className="font-serif text-base font-bold text-slate-900 flex items-center gap-2">
+              <KeyRound className="w-5 h-5 text-[#832729]" />
+              8. Security & Admin Master Password
+            </h2>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Securely change the store administrator master password via two-factor OTP verification sent to Brevo SMTP.
+            </p>
+          </div>
+          <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-700 border border-slate-200 px-2.5 py-1 rounded-full">
+            Step {securityStep} of 3
+          </span>
+        </div>
+
+        {/* Security Alerts */}
+        {securityError && (
+          <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-xl flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 mt-0.5" />
+            <span>{securityError}</span>
+          </div>
+        )}
+
+        {securitySuccess && (
+          <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-start gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 mt-0.5" />
+            <span>{securitySuccess}</span>
+          </div>
+        )}
+
+        {/* STEP 1: Email confirmation & request OTP */}
+        {securityStep === 1 && (
+          <form onSubmit={handleRequestSecurityOtp} className="space-y-4 max-w-xl text-xs">
+            <p className="text-slate-600 leading-relaxed">
+              To change your administrative password, click below to generate a single-use 6-digit cryptographic verification code. The code will be dispatched to your registered administrator email.
+            </p>
+
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">
+                Registered Administrator Email
+              </label>
+              <div className="relative">
+                <Mail className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+                <input
+                  type="email"
+                  required
+                  value={adminEmail}
+                  onChange={(e) => setAdminEmail(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#832729]"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={securityLoading}
+              className="px-6 py-2.5 bg-[#832729] hover:bg-[#6E1F21] text-white rounded-lg font-bold uppercase tracking-wider text-xs transition flex items-center gap-2 cursor-pointer disabled:opacity-60"
+            >
+              {securityLoading ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Dispatching OTP...</span>
+                </>
+              ) : (
+                <>
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Request Verification OTP</span>
+                </>
+              )}
+            </button>
+          </form>
+        )}
+
+        {/* STEP 2: Verify OTP */}
+        {securityStep === 2 && (
+          <form onSubmit={handleVerifySecurityOtp} className="space-y-4 max-w-md text-xs">
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="font-bold text-slate-700">
+                  Enter 6-Digit OTP (Expires in 5 minutes)
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setSecurityStep(1)}
+                  className="text-[11px] text-[#832729] hover:underline"
+                >
+                  Change Email
+                </button>
+              </div>
+
+              <input
+                type="text"
+                required
+                maxLength={6}
+                value={securityOtp}
+                onChange={(e) => setSecurityOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="000000"
+                className="w-full py-2.5 text-center tracking-[0.5em] font-mono text-xl font-bold border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#832729]"
+              />
+              <p className="text-[11px] text-slate-500 mt-1">
+                Code sent to <strong>{adminEmail}</strong>. Maximum 5 attempts.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                type="submit"
+                disabled={securityLoading || securityOtp.length !== 6}
+                className="px-6 py-2.5 bg-[#832729] hover:bg-[#6E1F21] text-white rounded-lg font-bold uppercase tracking-wider text-xs transition flex items-center gap-2 cursor-pointer disabled:opacity-60"
+              >
+                {securityLoading ? 'Verifying...' : 'Verify OTP'}
+              </button>
+
+              {securityCooldown > 0 ? (
+                <span className="text-slate-500 text-[11px]">
+                  Resend in <strong className="font-mono">{securityCooldown}s</strong>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  disabled={securityLoading}
+                  onClick={() => handleRequestSecurityOtp()}
+                  className="text-xs text-[#832729] font-bold hover:underline cursor-pointer"
+                >
+                  Resend OTP
+                </button>
+              )}
+            </div>
+          </form>
+        )}
+
+        {/* STEP 3: Enter New Master Password */}
+        {securityStep === 3 && (
+          <form onSubmit={handleUpdateMasterPassword} className="space-y-4 max-w-md text-xs">
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">
+                New Master Password *
+              </label>
+              <div className="relative">
+                <input
+                  type={showSecurityPassword ? 'text' : 'password'}
+                  required
+                  value={newMasterPassword}
+                  onChange={(e) => setNewMasterPassword(e.target.value)}
+                  placeholder="Min 8 chars: uppercase, lowercase & number"
+                  className="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#832729] pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowSecurityPassword(!showSecurityPassword)}
+                  className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-700"
+                >
+                  {showSecurityPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+
+              {/* Real-time criteria checklist */}
+              <div className="grid grid-cols-2 gap-1.5 pt-2 text-[11px] bg-slate-50 p-2.5 rounded-lg border border-slate-200 mt-2">
+                <div className={`flex items-center gap-1.5 ${hasSecurityMinLength ? 'text-emerald-700 font-medium' : 'text-slate-400'}`}>
+                  {hasSecurityMinLength ? <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" /> : <span className="w-3.5 h-3.5 rounded-full border border-slate-300 inline-block shrink-0" />}
+                  <span>8+ characters</span>
+                </div>
+                <div className={`flex items-center gap-1.5 ${hasSecurityUpper ? 'text-emerald-700 font-medium' : 'text-slate-400'}`}>
+                  {hasSecurityUpper ? <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" /> : <span className="w-3.5 h-3.5 rounded-full border border-slate-300 inline-block shrink-0" />}
+                  <span>Uppercase (A-Z)</span>
+                </div>
+                <div className={`flex items-center gap-1.5 ${hasSecurityLower ? 'text-emerald-700 font-medium' : 'text-slate-400'}`}>
+                  {hasSecurityLower ? <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" /> : <span className="w-3.5 h-3.5 rounded-full border border-slate-300 inline-block shrink-0" />}
+                  <span>Lowercase (a-z)</span>
+                </div>
+                <div className={`flex items-center gap-1.5 ${hasSecurityNumber ? 'text-emerald-700 font-medium' : 'text-slate-400'}`}>
+                  {hasSecurityNumber ? <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" /> : <span className="w-3.5 h-3.5 rounded-full border border-slate-300 inline-block shrink-0" />}
+                  <span>Number (0-9)</span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <label className="font-bold text-slate-700">
+                  Confirm New Master Password *
+                </label>
+                {confirmMasterPassword && (
+                  <span className={`text-[10px] font-semibold ${newMasterPassword === confirmMasterPassword ? 'text-emerald-600' : 'text-rose-500'}`}>
+                    {newMasterPassword === confirmMasterPassword ? '✓ Passwords match' : '✗ Passwords do not match'}
+                  </span>
+                )}
+              </div>
+              <input
+                type={showSecurityPassword ? 'text' : 'password'}
+                required
+                value={confirmMasterPassword}
+                onChange={(e) => setConfirmMasterPassword(e.target.value)}
+                placeholder="Re-enter new master password"
+                className="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#832729]"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={securityLoading || !isSecurityPasswordValid || newMasterPassword !== confirmMasterPassword}
+              className="px-6 py-2.5 bg-[#832729] hover:bg-[#6E1F21] text-white rounded-lg font-bold uppercase tracking-wider text-xs transition flex items-center gap-2 cursor-pointer disabled:opacity-60"
+            >
+              {securityLoading ? 'Saving...' : 'Update Master Password'}
+            </button>
+          </form>
+        )}
+
+        {/* STEP 4: Password Changed Successfully */}
+        {securityStep === 4 && (
+          <div className="max-w-md p-5 bg-emerald-50 border border-emerald-200 rounded-xl space-y-3 text-xs">
+            <div className="flex items-center gap-2 text-emerald-800 font-bold text-sm">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+              Master Password Updated Successfully!
+            </div>
+            <p className="text-emerald-700 leading-relaxed">
+              Your administrator master password has been securely hashed and stored. For maximum security, all active administrative sessions should now be re-authenticated with your new password.
+            </p>
+            <button
+              type="button"
+              onClick={logout}
+              className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-bold uppercase tracking-wider text-xs transition flex items-center gap-2 cursor-pointer"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              Log Out & Sign In With New Password
+            </button>
           </div>
         )}
       </div>

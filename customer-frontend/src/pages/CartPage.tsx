@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Trash2, Plus, Minus, ArrowRight, ShoppingBag, Tag, CheckCircle2 } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import { useStoreSettings } from '../context/StoreSettingsContext';
+import { getImageUrl, handleImageError } from '../utils/imageUrl';
 
 export const CartPage: React.FC = () => {
   const navigate = useNavigate();
@@ -64,16 +65,17 @@ export const CartPage: React.FC = () => {
           <div className="bg-white rounded-xl shadow-sm border border-stone-200 overflow-hidden divide-y divide-stone-100">
             {cartItems.map((item) => {
               const id = item._id || item.variant?._id;
-              const img =
+              const img = getImageUrl(
                 item.product?.images?.find((i) => i.isPrimary)?.url ||
-                item.product?.images?.[0]?.url ||
-                '';
+                item.product?.images?.[0]?.url
+              );
 
               return (
                 <div key={id} className="p-6 flex flex-col sm:flex-row items-start sm:items-center gap-6">
                   <img
                     src={img}
                     alt={item.product?.name}
+                    onError={handleImageError}
                     className="w-24 h-32 object-cover rounded-lg bg-stone-100 shrink-0"
                   />
 

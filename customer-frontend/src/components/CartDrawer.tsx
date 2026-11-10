@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { X, Plus, Minus, Trash2, ShoppingBag, ArrowRight } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import { useStoreSettings } from '../context/StoreSettingsContext';
+import { getImageUrl, handleImageError } from '../utils/imageUrl';
 
 export const CartDrawer: React.FC = () => {
   const navigate = useNavigate();
@@ -86,16 +87,17 @@ export const CartDrawer: React.FC = () => {
             ) : (
               cartItems.map((item) => {
                 const identifier = item._id || item.variant?._id;
-                const img =
+                const img = getImageUrl(
                   item.product?.images?.find((i) => i.isPrimary)?.url ||
-                  item.product?.images?.[0]?.url ||
-                  '';
+                  item.product?.images?.[0]?.url
+                );
 
                 return (
                   <div key={identifier} className="pt-4 first:pt-0 flex gap-4">
                     <img
                       src={img}
                       alt={item.product?.name}
+                      onError={handleImageError}
                       className="w-20 h-24 object-cover rounded-md bg-stone-100 shrink-0"
                     />
                     <div className="flex-1 flex flex-col justify-between">

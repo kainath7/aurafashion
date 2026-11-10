@@ -24,6 +24,7 @@ const emailLogSchema = new mongoose.Schema(
         'ADMIN_NEW_ORDER',
         'ADMIN_LOW_STOCK',
         'ADMIN_ORDER_CANCELLED',
+        'ADMIN_OTP_VERIFICATION',
         'TEST_EMAIL'
       ]
     },

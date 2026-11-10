@@ -3,17 +3,21 @@ import { Link } from 'react-router-dom';
 import { Heart } from 'lucide-react';
 import { Product } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { getImageUrl, handleImageError } from '../utils/imageUrl';
 
 interface ProductCardProps {
   product: Product;
 }
 
 export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
-  const { wishlistIds, toggleWishlist, isAuthenticated } = useAuth();
+  const { wishlistIds, toggleWishlist } = useAuth();
   const isWishlisted = wishlistIds.includes(product._id);
 
-  const primaryImage = product.images.find((img) => img.isPrimary)?.url || product.images[0]?.url;
-  const secondaryImage = product.images[1]?.url || primaryImage;
+  const rawPrimary = product.images?.find((img) => img.isPrimary)?.url || product.images?.[0]?.url;
+  const rawSecondary = product.images?.[1]?.url || rawPrimary;
+
+  const primaryImage = getImageUrl(rawPrimary);
+  const secondaryImage = getImageUrl(rawSecondary);
 
   const hasDiscount = product.discountPrice && product.discountPrice < product.basePrice;
   const discountPercent = hasDiscount
@@ -29,10 +33,6 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const handleWishlistClick = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!isAuthenticated) {
-      alert('Please sign in to save items to your wishlist');
-      return;
-    }
     await toggleWishlist(product._id);
   };
 
@@ -43,6 +43,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         <img
           src={primaryImage}
           alt={product.name}
+          onError={handleImageError}
           className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-700"
           loading="lazy"
         />
@@ -50,6 +51,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           <img
             src={secondaryImage}
             alt={`${product.name} alternate view`}
+            onError={handleImageError}
             className="absolute inset-0 w-full h-full object-cover object-top opacity-0 group-hover:opacity-100 transition-opacity duration-500"
             loading="lazy"
           />

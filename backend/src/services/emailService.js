@@ -22,7 +22,8 @@ import {
   passwordResetTemplate,
   adminNewOrderTemplate,
   adminLowStockTemplate,
-  adminOrderCancelledAlertTemplate
+  adminOrderCancelledAlertTemplate,
+  adminOtpTemplate
 } from './emailTemplates.js';
 
 let transporterInstance = null;
@@ -457,6 +458,27 @@ export const sendAdminOrderCancelledAlert = async (order, reason = '') => {
   });
 };
 
+// 11. Admin: Security OTP Email
+export const sendAdminOtpEmail = async ({ admin, otpCode, purpose = 'Password Recovery', expireMinutes = 5 }) => {
+  const adminUrl = process.env.ADMIN_URL || 'http://localhost:5174';
+  const { subject, html, text } = adminOtpTemplate({
+    adminName: admin.name,
+    otpCode,
+    purpose,
+    expireMinutes,
+    adminUrl
+  });
+
+  return sendEmail({
+    to: admin.email,
+    subject,
+    html,
+    text,
+    emailType: 'ADMIN_OTP_VERIFICATION',
+    metadata: { adminId: admin._id, purpose }
+  });
+};
+
 export default {
   verifySmtpConnection,
   sendEmail,
@@ -469,5 +491,6 @@ export default {
   sendPasswordResetEmail,
   sendAdminNewOrderAlert,
   sendAdminLowStockAlert,
-  sendAdminOrderCancelledAlert
+  sendAdminOrderCancelledAlert,
+  sendAdminOtpEmail
 };

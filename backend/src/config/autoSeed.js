@@ -10,18 +10,30 @@ import InventoryTransaction from '../models/InventoryTransaction.js';
 
 export const ensureInitialData = async () => {
   try {
-    // 1. Ensure Super Administrator exists
+    // 1. Ensure Super Administrator exists with correct verified email
+    const targetAdminEmail = (process.env.ADMIN_EMAIL || 'shoppe.aurafashion@gmail.com').toLowerCase();
     const adminCount = await Admin.countDocuments();
     if (adminCount === 0) {
-      console.log('[Seed] Initializing Aura Fashion Super Administrator...');
+      console.log(`[Seed] Initializing Aura Fashion Super Administrator with ${targetAdminEmail}...`);
       await Admin.create({
         name: 'Kainath (Aura Owner)',
-        email: 'admin@aurafashion.com',
+        email: targetAdminEmail,
         password: 'AuraAdmin@2026',
         role: 'superadmin',
         isActive: true
       });
-      console.log('✅ [Admin Ready] Email: admin@aurafashion.com | Password: AuraAdmin@2026');
+      console.log(`✅ [Admin Ready] Email: ${targetAdminEmail} | Password: AuraAdmin@2026`);
+    } else {
+      // Migrate legacy seeded admin@aurafashion.com to targetAdminEmail if found
+      const oldAdmin = await Admin.findOne({ email: 'admin@aurafashion.com' });
+      if (oldAdmin) {
+        const targetExists = await Admin.findOne({ email: targetAdminEmail });
+        if (!targetExists) {
+          oldAdmin.email = targetAdminEmail;
+          await oldAdmin.save();
+          console.log(`✅ [Admin Migration] Updated administrator email from admin@aurafashion.com to ${targetAdminEmail}`);
+        }
+      }
     }
 
     // 2. Ensure Store Settings exist
@@ -44,6 +56,7 @@ export const ensureInitialData = async () => {
         codExtraCharge: 0,
         primaryColor: '#832729',
         accentColor: '#D4AF37',
+        logoUrl: '/logo-dark.png',
         returnPolicy: 'Easy 7-day hassle-free returns from delivery date for unworn items with original tags intact.',
         exchangePolicy: 'Instant size and colour exchanges available within 7 days of delivery.',
         refundPolicy: 'Refunds are initiated within 48 hours of return verification to original payment method.',
@@ -54,6 +67,11 @@ export const ensureInitialData = async () => {
           whatsapp: 'https://wa.me/917022018850'
         }
       });
+    } else {
+      await StoreSettings.updateMany(
+        { $or: [{ logoUrl: { $exists: false } }, { logoUrl: null }, { logoUrl: '' }] },
+        { $set: { logoUrl: '/logo-dark.png' } }
+      );
     }
 
     // 3. Ensure Demo Customer exists
